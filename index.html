@@ -211,6 +211,27 @@
   .pagerow{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:.85rem;color:var(--muted);}
   .detailchips{display:flex;flex-wrap:wrap;gap:8px;}
   canvas{max-width:100%;}
+
+  @media (max-width:700px){
+    header.top{padding:14px 16px;}
+    header.top h1{font-size:1.2rem;}
+    header.top .controls{width:100%;}
+    header.top .controls select, header.top .controls button{flex:1;}
+    nav.tabs{padding:0 14px;}
+    nav.tabs button.tabbtn{margin-left:14px;padding:12px 4px;font-size:.85rem;}
+    main{padding:16px 14px 50px;}
+    .card{padding:14px 16px;}
+    .kpi{min-width:120px;padding:12px 14px;}
+    .kpi .value{font-size:1.25rem;}
+    .toolbar .grow{min-width:100%;}
+    table{font-size:.78rem;}
+    th,td{padding:6px 6px;}
+    .cardhead{flex-wrap:wrap;gap:8px;}
+  }
+  @media (max-width:460px){
+    header.top .controls{flex-direction:column;align-items:stretch;}
+    .row2{grid-template-columns:1fr;}
+  }
 </style>
 </head>
 <body>
@@ -235,7 +256,7 @@
       <div class="subtitle" id="fileStatus"></div>
     </div>
     <div class="controls">
-      <select id="roundSelect" title="מערכת בחירות"></select>
+      <select id="roundSelect" title="בחירות לכנסת"></select>
       <button class="ghost" id="refreshBtn">רענן מ-GitHub</button>
       <button class="ghost" id="reloadBtn">טען קובץ אחר</button>
     </div>
@@ -244,7 +265,7 @@
   <nav class="tabs">
     <button class="tabbtn" data-tab="national">סקירה ארצית</button>
     <button class="tabbtn active" data-tab="city">רשות בודדת</button>
-    <button class="tabbtn" data-tab="roundcompare">השוואת מערכות בחירות</button>
+    <button class="tabbtn" data-tab="roundcompare">השוואה בין בחירות לכנסת</button>
     <button class="tabbtn" data-tab="table">טבלת נתונים</button>
   </nav>
 
@@ -258,7 +279,7 @@
           <h3>המפלגות המובילות ארצית</h3>
           <button class="exportbtn" id="exportNatParty">ייצוא לאקסל</button>
         </div>
-        <div class="desc">סכום קולות לכל מפלגה על פני כלל השכונות, במחזור הבחירות הנבחר</div>
+        <div class="desc">סכום קולות לכל מפלגה על פני כלל השכונות, בבחירות לכנסת הנבחרות</div>
         <div class="toolbar">
           <select id="natMetricSelect">
             <option value="votes">לפי מספר קולות</option>
@@ -306,7 +327,7 @@
         <input type="text" id="rcCitySearch" list="cityList" class="grow" placeholder="סנן לרשות מסוימת (ריק = השוואה ארצית)...">
         <button id="rcRunBtn">השווה</button>
       </div>
-      <div id="rcContent"><div class="empty">בחר שתי מערכות בחירות ולחץ "השווה"</div></div>
+      <div id="rcContent"><div class="empty">בחר שתי בחירות לכנסת ולחץ "השווה"</div></div>
     </section>
 
     <!-- ===== TABLE ===== -->
@@ -451,11 +472,11 @@ function processWorkbook(arrayBuffer, sourceLabel){
     const keepRound = (currentRound && rounds.includes(currentRound)) ? currentRound : rounds[0];
 
     document.getElementById('roundSelect').innerHTML =
-      rounds.map(r => `<option value="${r}">מחזור ${r}</option>`).join('');
+      rounds.map(r => `<option value="${r}">${labelForRound(r)}</option>`).join('');
     document.getElementById('roundSelect').value = keepRound;
 
     document.getElementById('fileStatus').textContent =
-      `${sourceLabel} · מחזורים זמינים: ${rounds.join(', ')} · עודכן ${new Date().toLocaleTimeString('he-IL')}`;
+      `${sourceLabel} · בחירות זמינות: ${rounds.map(labelForRound).join(', ')} · עודכן ${new Date().toLocaleTimeString('he-IL')}`;
 
     document.getElementById('uploadScreen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
@@ -530,6 +551,9 @@ function partyChipColored(p, color){
 }
 function validRows(rows){
   return rows.filter(r => r['id'] !== -1 && r['id'] !== '-1' && !Number.isNaN(Number(r['אחוז הצבעה'])));
+}
+function labelForRound(r){
+  return /^\d+$/.test(String(r)) ? `הכנסת ה-${r}` : String(r);
 }
 function hex2rgba(hex, alpha){
   const h = (hex||'#888888').replace('#','');
@@ -682,9 +706,11 @@ function onCitySelected(){
         <button class="exportbtn" id="exportCityNei">ייצוא לאקסל</button>
       </div>
       <div class="desc">לחיצה על שורה פותחת את המפלגות המובילות באותה שכונה</div>
+      <div style="overflow-x:auto;">
       <table><thead><tr>
         <th style="width:20px;"></th><th>שכונה</th><th>בז״ב</th><th>מצביעים</th><th>אחוז הצבעה</th><th>מקום ראשון</th><th>מקום שני</th>
       </tr></thead><tbody id="cityNeiTableBody"></tbody></table>
+      </div>
     </div>
 
     <div class="card">
@@ -768,7 +794,7 @@ function onCitySelected(){
 
 /* ---------------- ROUND COMPARE TAB ---------------- */
 function populateRoundCompareSelectors(){
-  const opts = rounds.map(r => `<option value="${r}">מחזור ${r}</option>`).join('');
+  const opts = rounds.map(r => `<option value="${r}">${labelForRound(r)}</option>`).join('');
   document.getElementById('rcRoundA').innerHTML = opts;
   document.getElementById('rcRoundB').innerHTML = opts;
   document.getElementById('rcRoundA').value = rounds[0];
@@ -800,23 +826,24 @@ function renderRoundCompare(){
       const vB = inB ? dB.neighborhood.reduce((s,r)=>s+(Number(r[p])||0),0) : null;
       const pctA = (inA && kosherA) ? vA/kosherA*100 : null;
       const pctB = (inB && kosherB) ? vB/kosherB*100 : null;
-      const delta = (pctA!==null && pctB!==null) ? pctB-pctA : null;
+      const delta = (pctA!==null && pctB!==null) ? pctA-pctB : null;
       return {p, pctA, pctB, delta};
     }).sort((a,b) => Math.abs(b.delta ?? -1) - Math.abs(a.delta ?? -1));
 
     content.innerHTML = `
       <div class="kpirow">
-        <div class="kpi"><div class="label">אחוז הצבעה — מחזור ${rA}</div><div class="value">${fmtPct(toA)}</div></div>
-        <div class="kpi"><div class="label">אחוז הצבעה — מחזור ${rB}</div><div class="value">${fmtPct(toB)}</div></div>
-        <div class="kpi"><div class="label">שינוי באחוז ההצבעה</div><div class="value">${fmtDelta((isNaN(toA)||isNaN(toB))?NaN:toB-toA,'%')}</div></div>
+        <div class="kpi"><div class="label">אחוז הצבעה — ${labelForRound(rA)}</div><div class="value">${fmtPct(toA)}</div></div>
+        <div class="kpi"><div class="label">אחוז הצבעה — ${labelForRound(rB)}</div><div class="value">${fmtPct(toB)}</div></div>
+        <div class="kpi"><div class="label">שינוי ב-${labelForRound(rA)} ביחס ל-${labelForRound(rB)}</div><div class="value">${fmtDelta((isNaN(toA)||isNaN(toB))?NaN:toA-toB,'%')}</div></div>
       </div>
       <div class="card">
         <div class="cardhead">
           <h3>שינוי בכוח המפלגות (ארצי)</h3>
           <button class="exportbtn" id="exportRcNational">ייצוא לאקסל</button>
         </div>
-        <div class="desc">אחוז מהקולות הכשרים בכל מחזור, ממוין לפי גודל השינוי</div>
-        <table><thead><tr><th>מפלגה</th><th>מחזור ${rA}</th><th>מחזור ${rB}</th><th>שינוי</th></tr></thead>
+        <div class="desc">אחוז מהקולות הכשרים בכל בחירות, ממוין לפי גודל השינוי. השינוי מחושב כ-${labelForRound(rA)} פחות ${labelForRound(rB)}</div>
+        <div style="overflow-x:auto;">
+        <table><thead><tr><th>מפלגה</th><th>${labelForRound(rA)}</th><th>${labelForRound(rB)}</th><th>שינוי</th></tr></thead>
         <tbody>
           ${rowsData.map(r => `<tr>
             <td>${partyChip(r.p)}</td>
@@ -825,11 +852,12 @@ function renderRoundCompare(){
             <td class="num">${r.delta===null?'—':fmtDelta(r.delta,' נק׳')}</td>
           </tr>`).join('')}
         </tbody></table>
+        </div>
       </div>
     `;
 
     document.getElementById('exportRcNational').onclick = () => exportRows(
-      rowsData.map(r=>({'מפלגה':r.p, [`אחוז ${rA}`]: r.pctA===null?'לא התמודדה':+r.pctA.toFixed(2), [`אחוז ${rB}`]: r.pctB===null?'לא התמודדה':+r.pctB.toFixed(2), 'שינוי (נק\')': r.delta===null?'':+r.delta.toFixed(2)})),
+      rowsData.map(r=>({'מפלגה':r.p, [labelForRound(rA)]: r.pctA===null?'לא התמודדה':+r.pctA.toFixed(2), [labelForRound(rB)]: r.pctB===null?'לא התמודדה':+r.pctB.toFixed(2), [`שינוי (${labelForRound(rA)} פחות ${labelForRound(rB)}, נק')`]: r.delta===null?'':+r.delta.toFixed(2)})),
       `השוואת_מפלגות_${rA}_מול_${rB}.xlsx`, 'השוואה'
     );
   } else {
@@ -839,7 +867,7 @@ function renderRoundCompare(){
     const neiB = dB.neighborhood.filter(r => r['שם ישוב']===cityFilter && r['id']!==-1 && r['id']!=='-1');
 
     if(!cityA && !cityB && neiA.length===0 && neiB.length===0){
-      content.innerHTML = '<div class="empty">רשות לא נמצאה באחד המחזורים — בחר שם מהרשימה הנפתחת</div>';
+      content.innerHTML = '<div class="empty">רשות לא נמצאה באחת הבחירות שנבחרו — בחר שם מהרשימה הנפתחת</div>';
       return;
     }
 
@@ -851,7 +879,7 @@ function renderRoundCompare(){
       const a = mapA[name], b = mapB[name];
       const toA = a ? a['אחוז הצבעה'] : null;
       const toB = b ? b['אחוז הצבעה'] : null;
-      const delta = (toA!=null && toB!=null && !isNaN(toA) && !isNaN(toB)) ? toB-toA : null;
+      const delta = (toA!=null && toB!=null && !isNaN(toA) && !isNaN(toB)) ? toA-toB : null;
       const topA = topPartiesForRow(a, dA.partyCols, 2);
       const topB = topPartiesForRow(b, dB.partyCols, 2);
       return {name, toA, toB, delta, topA, topB};
@@ -862,21 +890,21 @@ function renderRoundCompare(){
 
     content.innerHTML = `
       <div class="kpirow">
-        <div class="kpi"><div class="label">אחוז הצבעה ברשות — מחזור ${rA}</div><div class="value">${cityA?fmtPct(cityA['אחוז הצבעה']):'—'}</div></div>
-        <div class="kpi"><div class="label">אחוז הצבעה ברשות — מחזור ${rB}</div><div class="value">${cityB?fmtPct(cityB['אחוז הצבעה']):'—'}</div></div>
-        <div class="kpi"><div class="label">מקום ראשון — מחזור ${rA}</div><div class="value">${placeCell(cityTopA[0], dA.colors)}</div></div>
-        <div class="kpi"><div class="label">מקום ראשון — מחזור ${rB}</div><div class="value">${placeCell(cityTopB[0], dB.colors)}</div></div>
+        <div class="kpi"><div class="label">אחוז הצבעה ברשות — ${labelForRound(rA)}</div><div class="value">${cityA?fmtPct(cityA['אחוז הצבעה']):'—'}</div></div>
+        <div class="kpi"><div class="label">אחוז הצבעה ברשות — ${labelForRound(rB)}</div><div class="value">${cityB?fmtPct(cityB['אחוז הצבעה']):'—'}</div></div>
+        <div class="kpi"><div class="label">מקום ראשון — ${labelForRound(rA)}</div><div class="value">${placeCell(cityTopA[0], dA.colors)}</div></div>
+        <div class="kpi"><div class="label">מקום ראשון — ${labelForRound(rB)}</div><div class="value">${placeCell(cityTopB[0], dB.colors)}</div></div>
       </div>
       <div class="card">
         <div class="cardhead">
           <h3>שינוי לפי שכונה — ${cityFilter}</h3>
           <button class="exportbtn" id="exportRcCity">ייצוא לאקסל</button>
         </div>
-        <div class="desc">ממוין לפי גודל השינוי באחוז ההצבעה</div>
+        <div class="desc">ממוין לפי גודל השינוי באחוז ההצבעה. השינוי מחושב כ-${labelForRound(rA)} פחות ${labelForRound(rB)}</div>
         <div style="overflow-x:auto;">
         <table><thead><tr>
-          <th>שכונה</th><th>אחוז הצבעה ${rA}</th><th>אחוז הצבעה ${rB}</th><th>שינוי</th>
-          <th>מקום ראשון ${rA}</th><th>מקום שני ${rA}</th><th>מקום ראשון ${rB}</th><th>מקום שני ${rB}</th>
+          <th>שכונה</th><th>אחוז הצבעה ${labelForRound(rA)}</th><th>אחוז הצבעה ${labelForRound(rB)}</th><th>שינוי</th>
+          <th>מקום ראשון ${labelForRound(rA)}</th><th>מקום שני ${labelForRound(rA)}</th><th>מקום ראשון ${labelForRound(rB)}</th><th>מקום שני ${labelForRound(rB)}</th>
         </tr></thead><tbody>
           ${rowsData.map(r => `<tr>
             <td>${r.name}</td>
@@ -896,12 +924,12 @@ function renderRoundCompare(){
     document.getElementById('exportRcCity').onclick = () => exportRows(
       rowsData.map(r=>({
         'שכונה': r.name,
-        [`אחוז הצבעה ${rA}`]: r.toA==null?'':r.toA, [`אחוז הצבעה ${rB}`]: r.toB==null?'':r.toB,
-        'שינוי': r.delta==null?'':+r.delta.toFixed(2),
-        [`מקום ראשון ${rA}`]: r.topA[0]?r.topA[0].p:'', [`אחוז ${rA}`]: r.topA[0]?+r.topA[0].pct.toFixed(1):'',
-        [`מקום שני ${rA}`]: r.topA[1]?r.topA[1].p:'', [`אחוז שני ${rA}`]: r.topA[1]?+r.topA[1].pct.toFixed(1):'',
-        [`מקום ראשון ${rB}`]: r.topB[0]?r.topB[0].p:'', [`אחוז ${rB}`]: r.topB[0]?+r.topB[0].pct.toFixed(1):'',
-        [`מקום שני ${rB}`]: r.topB[1]?r.topB[1].p:'', [`אחוז שני ${rB}`]: r.topB[1]?+r.topB[1].pct.toFixed(1):''
+        [`אחוז הצבעה ${labelForRound(rA)}`]: r.toA==null?'':r.toA, [`אחוז הצבעה ${labelForRound(rB)}`]: r.toB==null?'':r.toB,
+        [`שינוי (${labelForRound(rA)} פחות ${labelForRound(rB)})`]: r.delta==null?'':+r.delta.toFixed(2),
+        [`מקום ראשון ${labelForRound(rA)}`]: r.topA[0]?r.topA[0].p:'', [`אחוז ${labelForRound(rA)}`]: r.topA[0]?+r.topA[0].pct.toFixed(1):'',
+        [`מקום שני ${labelForRound(rA)}`]: r.topA[1]?r.topA[1].p:'', [`אחוז שני ${labelForRound(rA)}`]: r.topA[1]?+r.topA[1].pct.toFixed(1):'',
+        [`מקום ראשון ${labelForRound(rB)}`]: r.topB[0]?r.topB[0].p:'', [`אחוז ${labelForRound(rB)}`]: r.topB[0]?+r.topB[0].pct.toFixed(1):'',
+        [`מקום שני ${labelForRound(rB)}`]: r.topB[1]?r.topB[1].p:'', [`אחוז שני ${labelForRound(rB)}`]: r.topB[1]?+r.topB[1].pct.toFixed(1):''
       })),
       `השוואת_שכונות_${(cityFilter||'').replace(/[\\/:*?"<>|]/g,'')}_${rA}_מול_${rB}.xlsx`, 'השוואה'
     );
