@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ניתוח תוצאות בחירות לפי שכונות</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700;900&family=Assistant:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#F2F4F8;
+    --card:#FFFFFF;
+    --ink:#1B2430;
+    --muted:#66707E;
+    --accent:#1C8FC4;
+    --accent-dark:#136892;
+    --line:#DCE2EA;
+    --good:#1E8E5A;
+    --bad:#C4351C;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Assistant',sans-serif;
+    min-height:100vh;
+  }
+  h1,h2,h3{
+    font-family:'Frank Ruhl Libre',serif;
+    margin:0 0 4px 0;
+    font-weight:700;
+  }
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  header.top{
+    background:var(--card);
+    border-bottom:1px solid var(--line);
+    padding:20px 28px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:12px;
+  }
+  header.top h1{font-size:1.5rem;color:var(--ink);}
+  header.top .subtitle{color:var(--muted);font-size:.9rem;margin-top:2px;}
+  header.top .controls{display:flex;align-items:center;gap:10px;}
+  #fileStatus{font-size:.85rem;color:var(--muted);font-family:'IBM Plex Mono',monospace;}
+  button{
+    font-family:'Assistant',sans-serif;
+    font-weight:600;
+    font-size:.9rem;
+    border:none;
+    border-radius:8px;
+    padding:9px 16px;
+    cursor:pointer;
+    background:var(--accent);
+    color:#fff;
+    transition:background .15s;
+  }
+  button:hover{background:var(--accent-dark);}
+  button.ghost{
+    background:transparent;
+    color:var(--accent);
+    border:1px solid var(--accent);
+  }
+  button.ghost:hover{background:#e8f4fa;}
+  button.exportbtn{
+    background:transparent;
+    color:var(--muted);
+    border:1px solid var(--line);
+    font-size:.78rem;
+    padding:6px 12px;
+    white-space:nowrap;
+  }
+  button.exportbtn:hover{background:#e8f4fa;color:var(--accent-dark);border-color:var(--accent);}
+
+  /* upload screen */
+  #uploadScreen{
+    max-width:640px;
+    margin:8vh auto;
+    text-align:center;
+    padding:0 20px;
+  }
+  #uploadScreen h1{font-size:1.9rem;margin-bottom:10px;}
+  #uploadScreen p{color:var(--muted);line-height:1.6;}
+  #loadingState{margin-top:36px;color:var(--muted);}
+  #loadingState .spin{font-size:2rem;display:inline-block;animation:spin 1.4s linear infinite;}
+  @keyframes spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+  #uploadError{color:var(--bad);margin:14px 0;font-size:.88rem;}
+  #dropZone{
+    margin-top:28px;
+    border:2px dashed var(--accent);
+    border-radius:var(--radius);
+    background:var(--card);
+    padding:48px 24px;
+    cursor:pointer;
+    transition:background .15s,border-color .15s;
+  }
+  #dropZone.drag{background:#e8f4fa;border-color:var(--accent-dark);}
+  #dropZone .icon{font-size:2.4rem;margin-bottom:10px;}
+  #dropZone .hint{color:var(--muted);font-size:.85rem;margin-top:6px;}
+
+  /* main app */
+  #app{display:none;}
+  nav.tabs{
+    display:flex;
+    gap:4px;
+    padding:0 28px;
+    background:var(--card);
+    border-bottom:1px solid var(--line);
+    overflow-x:auto;
+  }
+  nav.tabs button.tabbtn{
+    background:transparent;
+    color:var(--muted);
+    border:none;
+    border-bottom:3px solid transparent;
+    border-radius:0;
+    padding:14px 6px;
+    margin-left:22px;
+    font-size:.95rem;
+    white-space:nowrap;
+  }
+  nav.tabs button.tabbtn.active{
+    color:var(--accent-dark);
+    border-bottom-color:var(--accent);
+  }
+  main{padding:24px 28px 60px;max-width:1280px;margin:0 auto;}
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  .kpirow{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:22px;}
+  .kpi{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:16px 20px;
+    min-width:150px;
+    flex:1;
+  }
+  .kpi .label{color:var(--muted);font-size:.78rem;}
+  .kpi .value{font-family:'Frank Ruhl Libre',serif;font-size:1.5rem;font-weight:700;margin-top:2px;}
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:20px 22px;
+    margin-bottom:20px;
+  }
+  .cardhead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px;}
+  .cardhead h3{margin-bottom:0;}
+  .card h3{font-size:1.05rem;margin-bottom:14px;}
+  .card .desc{color:var(--muted);font-size:.82rem;margin:-2px 0 14px;}
+
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  @media (max-width:860px){.row2{grid-template-columns:1fr;}}
+
+  table{width:100%;border-collapse:collapse;font-size:.88rem;}
+  th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);}
+  th{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:.72rem;
+    color:var(--muted);
+    font-weight:600;
+    cursor:pointer;
+    user-select:none;
+    white-space:nowrap;
+  }
+  th.sorted::after{content:" ▾";color:var(--accent);}
+  th.sorted.asc::after{content:" ▴";}
+  tbody tr:hover{background:#F7FAFC;}
+  tr.expandable{cursor:pointer;}
+  tr.detailrow{background:#F7FAFC;display:none;}
+  tr.detailrow.open{display:table-row;}
+  tr.detailrow td{padding:14px 16px;}
+  .expandicon{display:inline-block;width:14px;color:var(--accent);}
+  .chip{
+    display:inline-block;
+    padding:2px 9px;
+    border-radius:100px;
+    color:#fff;
+    font-size:.76rem;
+    font-family:'IBM Plex Mono',monospace;
+  }
+  .placecell{display:flex;align-items:center;gap:6px;white-space:nowrap;}
+  .num{font-family:'IBM Plex Mono',monospace;}
+  .heatcell{text-align:center;font-family:'IBM Plex Mono',monospace;}
+  .delta-pos{color:var(--good);font-family:'IBM Plex Mono',monospace;}
+  .delta-neg{color:var(--bad);font-family:'IBM Plex Mono',monospace;}
+
+  input[type=text], select{
+    font-family:'Assistant',sans-serif;
+    font-size:.9rem;
+    padding:9px 12px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:#fff;
+    color:var(--ink);
+  }
+  input[type=text]:focus, select:focus{outline:2px solid var(--accent);outline-offset:1px;}
+
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}
+  .toolbar .grow{flex:1;min-width:200px;}
+
+  .empty{color:var(--muted);text-align:center;padding:40px 0;font-size:.9rem;}
+  .pagerow{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:.85rem;color:var(--muted);}
+  .detailchips{display:flex;flex-wrap:wrap;gap:8px;}
+  canvas{max-width:100%;}
+</style>
+</head>
+<body>
+
+<div id="uploadScreen">
+  <h1>ניתוח תוצאות בחירות לפי שכונות</h1>
+  <p id="uploadIntro">טוען את קובץ הנתונים העדכני מ-GitHub...</p>
+  <div id="loadingState"><span class="spin">⏳</span></div>
+  <div id="uploadError" style="display:none;"></div>
+  <div id="dropZone" style="display:none;">
+    <div class="icon">📊</div>
+    <div>גרור לכאן את קובץ ה-Excel, או לחץ לבחירה</div>
+    <div class="hint">הקובץ נטען ומעובד בדפדפן בלבד — שום מידע לא נשלח החוצה</div>
+    <input type="file" id="fileInput" accept=".xlsx" style="display:none;">
+  </div>
+</div>
+
+<div id="app">
+  <header class="top">
+    <div>
+      <h1>ניתוח תוצאות בחירות לפי שכונות</h1>
+      <div class="subtitle" id="fileStatus"></div>
+    </div>
+    <div class="controls">
+      <select id="roundSelect" title="מערכת בחירות"></select>
+      <button class="ghost" id="refreshBtn">רענן מ-GitHub</button>
+      <button class="ghost" id="reloadBtn">טען קובץ אחר</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tabbtn" data-tab="national">סקירה ארצית</button>
+    <button class="tabbtn active" data-tab="city">רשות בודדת</button>
+    <button class="tabbtn" data-tab="roundcompare">השוואת מערכות בחירות</button>
+    <button class="tabbtn" data-tab="table">טבלת נתונים</button>
+  </nav>
+
+  <main>
+    <!-- ===== NATIONAL ===== -->
+    <section class="panel" id="panel-national">
+      <div class="kpirow" id="nationalKPIs"></div>
+
+      <div class="card">
+        <div class="cardhead">
+          <h3>המפלגות המובילות ארצית</h3>
+          <button class="exportbtn" id="exportNatParty">ייצוא לאקסל</button>
+        </div>
+        <div class="desc">סכום קולות לכל מפלגה על פני כלל השכונות, במחזור הבחירות הנבחר</div>
+        <div class="toolbar">
+          <select id="natMetricSelect">
+            <option value="votes">לפי מספר קולות</option>
+            <option value="pct">לפי אחוז מהקולות הכשרים</option>
+          </select>
+        </div>
+        <canvas id="natPartyChart" height="110"></canvas>
+      </div>
+
+      <div class="row2">
+        <div class="card">
+          <div class="cardhead">
+            <h3>10 הרשויות עם אחוז ההצבעה הגבוה ביותר</h3>
+            <button class="exportbtn" id="exportTopTurnout">ייצוא</button>
+          </div>
+          <table><thead><tr><th>רשות</th><th>אחוז הצבעה</th><th>מצביעים</th></tr></thead>
+          <tbody id="topTurnoutBody"></tbody></table>
+        </div>
+        <div class="card">
+          <div class="cardhead">
+            <h3>10 הרשויות עם אחוז ההצבעה הנמוך ביותר</h3>
+            <button class="exportbtn" id="exportBottomTurnout">ייצוא</button>
+          </div>
+          <table><thead><tr><th>רשות</th><th>אחוז הצבעה</th><th>מצביעים</th></tr></thead>
+          <tbody id="bottomTurnoutBody"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== CITY ===== -->
+    <section class="panel active" id="panel-city">
+      <div class="toolbar">
+        <input type="text" id="citySearch" list="cityList" class="grow" placeholder="הקלד שם רשות / יישוב...">
+        <datalist id="cityList"></datalist>
+      </div>
+      <div id="cityContent"><div class="empty">בחר רשות מהרשימה כדי לראות פירוט שכונות</div></div>
+    </section>
+
+    <!-- ===== ROUND COMPARE ===== -->
+    <section class="panel" id="panel-roundcompare">
+      <div class="toolbar">
+        <select id="rcRoundA"></select>
+        <span class="mono">מול</span>
+        <select id="rcRoundB"></select>
+        <input type="text" id="rcCitySearch" list="cityList" class="grow" placeholder="סנן לרשות מסוימת (ריק = השוואה ארצית)...">
+        <button id="rcRunBtn">השווה</button>
+      </div>
+      <div id="rcContent"><div class="empty">בחר שתי מערכות בחירות ולחץ "השווה"</div></div>
+    </section>
+
+    <!-- ===== TABLE ===== -->
+    <section class="panel" id="panel-table">
+      <div class="toolbar">
+        <select id="tableLevelSelect">
+          <option value="neighborhood">לפי שכונות</option>
+          <option value="municipal">לפי רשויות</option>
+        </select>
+        <input type="text" id="tableSearch" class="grow" placeholder="חיפוש חופשי בטבלה...">
+        <button class="ghost" id="exportBtn">ייצוא התצוגה ל-Excel</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table><thead><tr id="tableHead"></tr></thead><tbody id="tableBody"></tbody></table>
+      </div>
+      <div class="pagerow">
+        <span id="pageInfo"></span>
+        <span>
+          <button class="ghost" id="prevPage">הקודם</button>
+          <button class="ghost" id="nextPage">הבא</button>
+        </span>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+/* ---------------- config ---------------- */
+const DATA_URL = 'https://raw.githubusercontent.com/gil1feldman/data_files/main/election_results_by_neighborhood.xlsx';
+
+/* ---------------- state ---------------- */
+let dataByRound = {};      // round -> {neighborhood, municipal, partyCols, colors}
+let rounds = [];
+let currentRound = null;
+
+let neighborhoodData = [];
+let municipalData = [];
+let partyCols = [];
+let partyColorMap = {};
+
+const NEI_META = ['id','SETL_CODE','שם ישוב','neighborhood_name','בזב','מצביעים','פסולים','כשרים','winner_party','אחוז הצבעה','מחזור_בחירות'];
+const MUN_META = ['id','SETL_CODE','שם ישוב','בזב','מצביעים','פסולים','כשרים','winner_party','אחוז הצבעה','מחזור_בחירות'];
+
+const PALETTE = ['#1C8FC4','#E8853C','#7B5EA7','#1E8E5A','#C4351C','#D4A72C',
+                  '#3D5A80','#B4436C','#4C9F70','#8E6C8A','#2E86AB','#F26D5B',
+                  '#5B8C5A','#A85751','#6F4E7C','#3E7CB1'];
+
+/* ---------------- boot: auto-load from GitHub, fallback to manual upload ---------------- */
+window.addEventListener('DOMContentLoaded', () => { autoLoadFromGithub(false); });
+
+async function autoLoadFromGithub(isManualRefresh){
+  document.getElementById('uploadIntro').textContent = 'טוען את קובץ הנתונים העדכני מ-GitHub...';
+  document.getElementById('loadingState').style.display = 'block';
+  document.getElementById('uploadError').style.display = 'none';
+  document.getElementById('dropZone').style.display = 'none';
+  if(!isManualRefresh){
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('uploadScreen').style.display = 'block';
+  }
+  try{
+    const resp = await fetch(DATA_URL + '?t=' + Date.now());
+    if(!resp.ok) throw new Error('HTTP ' + resp.status);
+    const buf = await resp.arrayBuffer();
+    processWorkbook(buf, 'GitHub · election_results_by_neighborhood.xlsx');
+  }catch(err){
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('uploadError').style.display = 'block';
+    document.getElementById('uploadError').textContent =
+      'טעינה אוטומטית מ-GitHub נכשלה (' + err.message + '). אפשר לטעון את הקובץ ידנית:';
+    document.getElementById('uploadIntro').textContent = 'ניתוח תוצאות בחירות לפי שכונות';
+    document.getElementById('dropZone').style.display = 'block';
+  }
+}
+
+function showManualUpload(){
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('uploadScreen').style.display = 'block';
+  document.getElementById('loadingState').style.display = 'none';
+  document.getElementById('uploadError').style.display = 'none';
+  document.getElementById('uploadIntro').textContent = 'ניתוח תוצאות בחירות לפי שכונות';
+  document.getElementById('dropZone').style.display = 'block';
+}
+
+/* ---------------- file loading (manual fallback) ---------------- */
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+function handleFile(file){
+  const reader = new FileReader();
+  reader.onload = e => processWorkbook(e.target.result, file.name);
+  reader.readAsArrayBuffer(file);
+}
+
+function processWorkbook(arrayBuffer, sourceLabel){
+  try{
+    const wb = XLSX.read(arrayBuffer, {type:'array'});
+    dataByRound = {};
+    rounds = [];
+
+    const roundsSet = new Set();
+    wb.SheetNames.forEach(name => {
+      const m1 = name.match(/^שכונות_(.+)$/);
+      const m2 = name.match(/^רשויות_(.+)$/);
+      if(m1) roundsSet.add(m1[1]);
+      if(m2) roundsSet.add(m2[1]);
+    });
+
+    if(roundsSet.size > 0){
+      [...roundsSet].forEach(r => {
+        const neiSheet = wb.Sheets['שכונות_' + r];
+        const munSheet = wb.Sheets['רשויות_' + r];
+        if(!neiSheet || !munSheet) return;
+        registerRound(r, XLSX.utils.sheet_to_json(neiSheet), XLSX.utils.sheet_to_json(munSheet));
+      });
+    } else if(wb.Sheets['לפי שכונות'] && wb.Sheets['לפי רשויות']){
+      registerRound('כללי', XLSX.utils.sheet_to_json(wb.Sheets['לפי שכונות']), XLSX.utils.sheet_to_json(wb.Sheets['לפי רשויות']));
+    }
+
+    if(rounds.length === 0){
+      alert('לא נמצאו טאבים מוכרים בקובץ (שכונות_/רשויות_ או לפי שכונות/לפי רשויות).');
+      return;
+    }
+
+    rounds.sort((a,b) => {
+      const na = parseInt(a), nb = parseInt(b);
+      if(!isNaN(na) && !isNaN(nb)) return nb - na;
+      return String(b).localeCompare(String(a), 'he');
+    });
+
+    const keepRound = (currentRound && rounds.includes(currentRound)) ? currentRound : rounds[0];
+
+    document.getElementById('roundSelect').innerHTML =
+      rounds.map(r => `<option value="${r}">מחזור ${r}</option>`).join('');
+    document.getElementById('roundSelect').value = keepRound;
+
+    document.getElementById('fileStatus').textContent =
+      `${sourceLabel} · מחזורים זמינים: ${rounds.join(', ')} · עודכן ${new Date().toLocaleTimeString('he-IL')}`;
+
+    document.getElementById('uploadScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    initApp(keepRound);
+  }catch(err){
+    alert('שגיאה בקריאת הקובץ: ' + err.message);
+  }
+}
+
+function registerRound(r, neighborhood, municipal){
+  const cols = Object.keys(neighborhood[0] || {}).filter(k => !NEI_META.includes(k));
+  const totals = {};
+  cols.forEach(p => totals[p] = 0);
+  neighborhood.forEach(row => cols.forEach(p => totals[p] += (Number(row[p]) || 0)));
+  const ranked = [...cols].sort((a,b) => totals[b]-totals[a]);
+  const colors = {};
+  ranked.forEach((p,i) => colors[p] = PALETTE[i % PALETTE.length]);
+
+  dataByRound[r] = {neighborhood, municipal, partyCols: cols, colors};
+  rounds.push(r);
+}
+
+function applyRound(r){
+  currentRound = r;
+  neighborhoodData = dataByRound[r].neighborhood;
+  municipalData = dataByRound[r].municipal;
+  partyCols = dataByRound[r].partyCols;
+  partyColorMap = dataByRound[r].colors;
+
+  document.getElementById('citySearch').value = '';
+  document.getElementById('cityContent').innerHTML = '<div class="empty">בחר רשות מהרשימה כדי לראות פירוט שכונות</div>';
+
+  renderNational();
+  populateCityList();
+  tablePage = 0;
+  renderTable();
+}
+
+/* ---------------- tabs ---------------- */
+document.querySelectorAll('.tabbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tabbtn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+/* ---------------- helpers ---------------- */
+function fmtNum(n){
+  if(n === undefined || n === null || Number.isNaN(n)) return '—';
+  return Number(n).toLocaleString('he-IL');
+}
+function fmtPct(n){
+  if(n === undefined || n === null || Number.isNaN(n)) return '—';
+  return Number(n).toFixed(1) + '%';
+}
+function fmtDelta(n, unit){
+  if(n === undefined || n === null || Number.isNaN(n)) return '—';
+  const cls = n > 0 ? 'delta-pos' : (n < 0 ? 'delta-neg' : '');
+  const sign = n > 0 ? '+' : '';
+  return `<span class="${cls}">${sign}${n.toFixed(1)}${unit||''}</span>`;
+}
+function partyChip(p){
+  if(!p) return '—';
+  const c = partyColorMap[p] || '#888';
+  return `<span class="chip" style="background:${c}">${p}</span>`;
+}
+function partyChipColored(p, color){
+  if(!p) return '—';
+  return `<span class="chip" style="background:${color||'#888'}">${p}</span>`;
+}
+function validRows(rows){
+  return rows.filter(r => r['id'] !== -1 && r['id'] !== '-1' && !Number.isNaN(Number(r['אחוז הצבעה'])));
+}
+function hex2rgba(hex, alpha){
+  const h = (hex||'#888888').replace('#','');
+  const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+/** top N parties for a data row, with vote share of the kosher-vote total */
+function topPartiesForRow(row, cols, n){
+  if(!row) return [];
+  const kosher = Number(row['כשרים'])||0;
+  const arr = cols.map(p => ({p, v: Number(row[p])||0})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v).slice(0,n);
+  return arr.map(x => ({p:x.p, v:x.v, pct: kosher ? x.v/kosher*100 : 0}));
+}
+function placeCell(entry, colorMap){
+  if(!entry) return '<span class="placecell">—</span>';
+  const c = (colorMap||partyColorMap)[entry.p] || '#888';
+  return `<span class="placecell">${partyChipColored(entry.p, c)}<span class="num">${fmtPct(entry.pct)}</span></span>`;
+}
+function exportRows(rows, filename, sheetName){
+  if(!rows || rows.length === 0){ alert('אין נתונים לייצוא'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, (sheetName||'Sheet1').slice(0,31));
+  XLSX.writeFile(wb, filename);
+}
+
+/* ---------------- app init ---------------- */
+function initApp(startRound){
+  applyRound(startRound || rounds[0]);
+  populateRoundCompareSelectors();
+
+  document.getElementById('roundSelect').onchange = e => applyRound(e.target.value);
+  document.getElementById('refreshBtn').onclick = () => autoLoadFromGithub(true);
+  document.getElementById('reloadBtn').onclick = showManualUpload;
+  document.getElementById('natMetricSelect').onchange = renderNationalPartyChart;
+  document.getElementById('citySearch').onchange = onCitySelected;
+  document.getElementById('rcRunBtn').onclick = renderRoundCompare;
+  document.getElementById('tableLevelSelect').onchange = () => { tablePage=0; renderTable(); };
+  document.getElementById('tableSearch').oninput = () => { tablePage=0; renderTable(); };
+  document.getElementById('exportBtn').onclick = exportTableView;
+  document.getElementById('prevPage').onclick = () => { if(tablePage>0){tablePage--; renderTable();} };
+  document.getElementById('nextPage').onclick = () => { tablePage++; renderTable(); };
+}
+
+/* ---------------- NATIONAL TAB ---------------- */
+let natChart;
+let _natRankedForExport = [];
+function renderNational(){
+  const validMun = validRows(municipalData);
+  const totalNei = neighborhoodData.filter(r => r['id'] !== -1 && r['id'] !== '-1').length;
+  const totalCities = new Set(municipalData.map(r => r['שם ישוב'])).size;
+  const sumEligible = municipalData.reduce((s,r) => s + (Number(r['בזב'])||0), 0);
+  const sumVoters = municipalData.reduce((s,r) => s + (Number(r['מצביעים'])||0), 0);
+  const turnout = sumEligible ? (sumVoters/sumEligible*100) : 0;
+
+  document.getElementById('nationalKPIs').innerHTML = `
+    <div class="kpi"><div class="label">רשויות</div><div class="value">${fmtNum(totalCities)}</div></div>
+    <div class="kpi"><div class="label">שכונות</div><div class="value">${fmtNum(totalNei)}</div></div>
+    <div class="kpi"><div class="label">בעלי זכות בחירה</div><div class="value">${fmtNum(sumEligible)}</div></div>
+    <div class="kpi"><div class="label">מצביעים בפועל</div><div class="value">${fmtNum(sumVoters)}</div></div>
+    <div class="kpi"><div class="label">אחוז הצבעה ארצי</div><div class="value">${fmtPct(turnout)}</div></div>
+  `;
+
+  const byTurnoutDesc = [...validMun].sort((a,b) => b['אחוז הצבעה'] - a['אחוז הצבעה']).slice(0,10);
+  const byTurnoutAsc = [...validMun].sort((a,b) => a['אחוז הצבעה'] - b['אחוז הצבעה']).slice(0,10);
+  document.getElementById('topTurnoutBody').innerHTML = byTurnoutDesc.map(r =>
+    `<tr><td>${r['שם ישוב']}</td><td class="num">${fmtPct(r['אחוז הצבעה'])}</td><td class="num">${fmtNum(r['מצביעים'])}</td></tr>`
+  ).join('');
+  document.getElementById('bottomTurnoutBody').innerHTML = byTurnoutAsc.map(r =>
+    `<tr><td>${r['שם ישוב']}</td><td class="num">${fmtPct(r['אחוז הצבעה'])}</td><td class="num">${fmtNum(r['מצביעים'])}</td></tr>`
+  ).join('');
+
+  document.getElementById('exportTopTurnout').onclick = () =>
+    exportRows(byTurnoutDesc.map(r=>({'רשות':r['שם ישוב'],'אחוז הצבעה':r['אחוז הצבעה'],'מצביעים':r['מצביעים']})), 'רשויות_אחוז_הצבעה_גבוה.xlsx', 'גבוה');
+  document.getElementById('exportBottomTurnout').onclick = () =>
+    exportRows(byTurnoutAsc.map(r=>({'רשות':r['שם ישוב'],'אחוז הצבעה':r['אחוז הצבעה'],'מצביעים':r['מצביעים']})), 'רשויות_אחוז_הצבעה_נמוך.xlsx', 'נמוך');
+
+  renderNationalPartyChart();
+}
+
+function renderNationalPartyChart(){
+  const metric = document.getElementById('natMetricSelect').value;
+  const totals = {};
+  partyCols.forEach(p => totals[p] = 0);
+  neighborhoodData.forEach(row => partyCols.forEach(p => totals[p] += (Number(row[p]) || 0)));
+  const totalKosher = neighborhoodData.reduce((s,r) => s + (Number(r['כשרים'])||0), 0);
+
+  let ranked = partyCols.map(p => ({p, v: totals[p], pct: totalKosher ? totals[p]/totalKosher*100 : 0})).sort((a,b) => b.v-a.v).slice(0,12);
+  _natRankedForExport = ranked;
+  const labels = ranked.map(r => r.p);
+  const values = metric === 'pct' ? ranked.map(r => +r.pct.toFixed(2)) : ranked.map(r => r.v);
+  const colors = labels.map(p => partyColorMap[p]);
+
+  if(natChart) natChart.destroy();
+  natChart = new Chart(document.getElementById('natPartyChart'), {
+    type:'bar',
+    data:{labels, datasets:[{data:values, backgroundColor:colors, borderRadius:5}]},
+    options:{
+      indexAxis:'y',
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label: c => metric==='pct' ? c.raw+'%' : fmtNum(c.raw)}}},
+      scales:{x:{beginAtZero:true}}
+    }
+  });
+
+  document.getElementById('exportNatParty').onclick = () =>
+    exportRows(_natRankedForExport.map(r=>({'מפלגה':r.p,'קולות':r.v,'אחוז מהקולות הכשרים':+r.pct.toFixed(2)})), 'מפלגות_מובילות_ארצית.xlsx', 'מפלגות');
+}
+
+/* ---------------- CITY TAB ---------------- */
+function populateCityList(){
+  const names = [...new Set(municipalData.map(r => r['שם ישוב']))].filter(Boolean).sort();
+  document.getElementById('cityList').innerHTML = names.map(n => `<option value="${n}">`).join('');
+}
+
+function onCitySelected(){
+  const name = document.getElementById('citySearch').value.trim();
+  const cityRow = municipalData.find(r => r['שם ישוב'] === name);
+  const rows = neighborhoodData.filter(r => r['שם ישוב'] === name && r['id'] !== -1 && r['id'] !== '-1');
+  const container = document.getElementById('cityContent');
+
+  if(!cityRow && rows.length === 0){
+    container.innerHTML = '<div class="empty">רשות לא נמצאה — בחר שם מהרשימה הנפתחת</div>';
+    return;
+  }
+
+  const eligible = cityRow ? cityRow['בזב'] : rows.reduce((s,r)=>s+(Number(r['בזב'])||0),0);
+  const voters = cityRow ? cityRow['מצביעים'] : rows.reduce((s,r)=>s+(Number(r['מצביעים'])||0),0);
+  const turnout = cityRow ? cityRow['אחוז הצבעה'] : (eligible ? voters/eligible*100 : NaN);
+  const cityTop2 = topPartiesForRow(cityRow, partyCols, 2);
+
+  const sortedByTurnout = rows.slice().sort((a,b)=>(b['אחוז הצבעה']||0)-(a['אחוז הצבעה']||0));
+
+  const cityTotals = {};
+  partyCols.forEach(p => cityTotals[p] = rows.reduce((s,r)=>s+(Number(r[p])||0),0));
+  const topParties = partyCols.map(p=>({p,v:cityTotals[p]})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v).slice(0,8).map(x=>x.p);
+
+  container.innerHTML = `
+    <div class="kpirow">
+      <div class="kpi"><div class="label">שכונות ברשות</div><div class="value">${fmtNum(rows.length)}</div></div>
+      <div class="kpi"><div class="label">בעלי זכות בחירה</div><div class="value">${fmtNum(eligible)}</div></div>
+      <div class="kpi"><div class="label">מצביעים</div><div class="value">${fmtNum(voters)}</div></div>
+      <div class="kpi"><div class="label">אחוז הצבעה</div><div class="value">${fmtPct(turnout)}</div></div>
+      <div class="kpi"><div class="label">מקום ראשון ברשות</div><div class="value">${placeCell(cityTop2[0])}</div></div>
+      <div class="kpi"><div class="label">מקום שני ברשות</div><div class="value">${placeCell(cityTop2[1])}</div></div>
+    </div>
+
+    <div class="card">
+      <div class="cardhead">
+        <h3>שכונות ברשות</h3>
+        <button class="exportbtn" id="exportCityNei">ייצוא לאקסל</button>
+      </div>
+      <div class="desc">לחיצה על שורה פותחת את המפלגות המובילות באותה שכונה</div>
+      <table><thead><tr>
+        <th style="width:20px;"></th><th>שכונה</th><th>בז״ב</th><th>מצביעים</th><th>אחוז הצבעה</th><th>מקום ראשון</th><th>מקום שני</th>
+      </tr></thead><tbody id="cityNeiTableBody"></tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="cardhead">
+        <h3>מפלגות מובילות ברשות, לפי שכונה</h3>
+        <button class="exportbtn" id="exportCityHeat">ייצוא לאקסל</button>
+      </div>
+      <div class="desc">אחוז מהקולות הכשרים בכל שכונה. גוון כהה יותר = אחוז גבוה יותר עבור אותה מפלגה</div>
+      <div style="overflow-x:auto;">
+        <table><thead><tr id="cityHeatHead"></tr></thead><tbody id="cityHeatBody"></tbody></table>
+      </div>
+    </div>
+  `;
+
+  // --- expandable neighborhoods table ---
+  const tbody = document.getElementById('cityNeiTableBody');
+  const exportNeiRows = [];
+  tbody.innerHTML = sortedByTurnout.map((r, idx) => {
+    const top5 = topPartiesForRow(r, partyCols, 5);
+    const top2 = top5.slice(0,2);
+    const chips = top5.map(x => `<span class="chip" style="background:${partyColorMap[x.p]}">${x.p} ${x.pct.toFixed(1)}%</span>`).join(' ');
+
+    exportNeiRows.push({
+      'שכונה': r['neighborhood_name'] ?? '',
+      'בז"ב': r['בזב'], 'מצביעים': r['מצביעים'], 'אחוז הצבעה': r['אחוז הצבעה'],
+      'מקום ראשון': top2[0] ? top2[0].p : '', 'אחוז מקום ראשון': top2[0] ? +top2[0].pct.toFixed(1) : '',
+      'מקום שני': top2[1] ? top2[1].p : '', 'אחוז מקום שני': top2[1] ? +top2[1].pct.toFixed(1) : ''
+    });
+
+    return `
+      <tr class="expandable" data-idx="${idx}">
+        <td><span class="expandicon">▸</span></td>
+        <td>${r['neighborhood_name'] ?? '—'}</td>
+        <td class="num">${fmtNum(r['בזב'])}</td>
+        <td class="num">${fmtNum(r['מצביעים'])}</td>
+        <td class="num">${fmtPct(r['אחוז הצבעה'])}</td>
+        <td>${placeCell(top2[0])}</td>
+        <td>${placeCell(top2[1])}</td>
+      </tr>
+      <tr class="detailrow" data-idx="${idx}"><td colspan="7"><div class="detailchips">${chips || '<span class="empty">אין נתוני הצבעה</span>'}</div></td></tr>
+    `;
+  }).join('');
+
+  tbody.querySelectorAll('tr.expandable').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const idx = tr.dataset.idx;
+      const icon = tr.querySelector('.expandicon');
+      const detail = tbody.querySelector(`tr.detailrow[data-idx="${idx}"]`);
+      const isOpen = detail.classList.toggle('open');
+      icon.textContent = isOpen ? '▾' : '▸';
+    });
+  });
+
+  document.getElementById('exportCityNei').onclick = () =>
+    exportRows(exportNeiRows, `שכונות_${(name||'רשות').replace(/[\\/:*?"<>|]/g,'')}.xlsx`, 'שכונות');
+
+  // --- heatmap matrix: parties x neighborhoods ---
+  document.getElementById('cityHeatHead').innerHTML =
+    '<th>מפלגה</th>' + sortedByTurnout.map(r => `<th>${r['neighborhood_name'] ?? r['id']}</th>`).join('');
+
+  const exportHeatRows = [];
+  document.getElementById('cityHeatBody').innerHTML = topParties.map(p => {
+    const values = sortedByTurnout.map(r => {
+      const kosher = Number(r['כשרים'])||0;
+      return kosher ? (Number(r[p])||0)/kosher*100 : 0;
+    });
+    const rowMax = Math.max(...values, 0.0001);
+    const exportRow = {'מפלגה': p};
+    const cells = values.map((v, i) => {
+      const alpha = 0.08 + 0.75 * (v / rowMax);
+      exportRow[sortedByTurnout[i]['neighborhood_name'] ?? sortedByTurnout[i]['id']] = +v.toFixed(1);
+      return `<td class="heatcell" style="background:${hex2rgba(partyColorMap[p], alpha)}">${v.toFixed(1)}%</td>`;
+    }).join('');
+    exportHeatRows.push(exportRow);
+    return `<tr><td>${partyChip(p)}</td>${cells}</tr>`;
+  }).join('');
+
+  document.getElementById('exportCityHeat').onclick = () =>
+    exportRows(exportHeatRows, `מפלגות_לפי_שכונה_${(name||'רשות').replace(/[\\/:*?"<>|]/g,'')}.xlsx`, 'מטריצה');
+}
+
+/* ---------------- ROUND COMPARE TAB ---------------- */
+function populateRoundCompareSelectors(){
+  const opts = rounds.map(r => `<option value="${r}">מחזור ${r}</option>`).join('');
+  document.getElementById('rcRoundA').innerHTML = opts;
+  document.getElementById('rcRoundB').innerHTML = opts;
+  document.getElementById('rcRoundA').value = rounds[0];
+  document.getElementById('rcRoundB').value = rounds.length > 1 ? rounds[1] : rounds[0];
+}
+
+function renderRoundCompare(){
+  const rA = document.getElementById('rcRoundA').value;
+  const rB = document.getElementById('rcRoundB').value;
+  const cityFilter = document.getElementById('rcCitySearch').value.trim();
+  const dA = dataByRound[rA], dB = dataByRound[rB];
+  const content = document.getElementById('rcContent');
+
+  if(!cityFilter){
+    const elA = dA.municipal.reduce((s,r)=>s+(Number(r['בזב'])||0),0);
+    const voA = dA.municipal.reduce((s,r)=>s+(Number(r['מצביעים'])||0),0);
+    const elB = dB.municipal.reduce((s,r)=>s+(Number(r['בזב'])||0),0);
+    const voB = dB.municipal.reduce((s,r)=>s+(Number(r['מצביעים'])||0),0);
+    const toA = elA ? voA/elA*100 : NaN;
+    const toB = elB ? voB/elB*100 : NaN;
+
+    const unionParties = [...new Set([...dA.partyCols, ...dB.partyCols])];
+    const kosherA = dA.neighborhood.reduce((s,r)=>s+(Number(r['כשרים'])||0),0);
+    const kosherB = dB.neighborhood.reduce((s,r)=>s+(Number(r['כשרים'])||0),0);
+
+    const rowsData = unionParties.map(p => {
+      const inA = dA.partyCols.includes(p), inB = dB.partyCols.includes(p);
+      const vA = inA ? dA.neighborhood.reduce((s,r)=>s+(Number(r[p])||0),0) : null;
+      const vB = inB ? dB.neighborhood.reduce((s,r)=>s+(Number(r[p])||0),0) : null;
+      const pctA = (inA && kosherA) ? vA/kosherA*100 : null;
+      const pctB = (inB && kosherB) ? vB/kosherB*100 : null;
+      const delta = (pctA!==null && pctB!==null) ? pctB-pctA : null;
+      return {p, pctA, pctB, delta};
+    }).sort((a,b) => Math.abs(b.delta ?? -1) - Math.abs(a.delta ?? -1));
+
+    content.innerHTML = `
+      <div class="kpirow">
+        <div class="kpi"><div class="label">אחוז הצבעה — מחזור ${rA}</div><div class="value">${fmtPct(toA)}</div></div>
+        <div class="kpi"><div class="label">אחוז הצבעה — מחזור ${rB}</div><div class="value">${fmtPct(toB)}</div></div>
+        <div class="kpi"><div class="label">שינוי באחוז ההצבעה</div><div class="value">${fmtDelta((isNaN(toA)||isNaN(toB))?NaN:toB-toA,'%')}</div></div>
+      </div>
+      <div class="card">
+        <div class="cardhead">
+          <h3>שינוי בכוח המפלגות (ארצי)</h3>
+          <button class="exportbtn" id="exportRcNational">ייצוא לאקסל</button>
+        </div>
+        <div class="desc">אחוז מהקולות הכשרים בכל מחזור, ממוין לפי גודל השינוי</div>
+        <table><thead><tr><th>מפלגה</th><th>מחזור ${rA}</th><th>מחזור ${rB}</th><th>שינוי</th></tr></thead>
+        <tbody>
+          ${rowsData.map(r => `<tr>
+            <td>${partyChip(r.p)}</td>
+            <td class="num">${r.pctA===null?'לא התמודדה':fmtPct(r.pctA)}</td>
+            <td class="num">${r.pctB===null?'לא התמודדה':fmtPct(r.pctB)}</td>
+            <td class="num">${r.delta===null?'—':fmtDelta(r.delta,' נק׳')}</td>
+          </tr>`).join('')}
+        </tbody></table>
+      </div>
+    `;
+
+    document.getElementById('exportRcNational').onclick = () => exportRows(
+      rowsData.map(r=>({'מפלגה':r.p, [`אחוז ${rA}`]: r.pctA===null?'לא התמודדה':+r.pctA.toFixed(2), [`אחוז ${rB}`]: r.pctB===null?'לא התמודדה':+r.pctB.toFixed(2), 'שינוי (נק\')': r.delta===null?'':+r.delta.toFixed(2)})),
+      `השוואת_מפלגות_${rA}_מול_${rB}.xlsx`, 'השוואה'
+    );
+  } else {
+    const cityA = dA.municipal.find(r => r['שם ישוב']===cityFilter);
+    const cityB = dB.municipal.find(r => r['שם ישוב']===cityFilter);
+    const neiA = dA.neighborhood.filter(r => r['שם ישוב']===cityFilter && r['id']!==-1 && r['id']!=='-1');
+    const neiB = dB.neighborhood.filter(r => r['שם ישוב']===cityFilter && r['id']!==-1 && r['id']!=='-1');
+
+    if(!cityA && !cityB && neiA.length===0 && neiB.length===0){
+      content.innerHTML = '<div class="empty">רשות לא נמצאה באחד המחזורים — בחר שם מהרשימה הנפתחת</div>';
+      return;
+    }
+
+    const mapA = {}; neiA.forEach(r => mapA[r['neighborhood_name']||r['id']] = r);
+    const mapB = {}; neiB.forEach(r => mapB[r['neighborhood_name']||r['id']] = r);
+    const unionNames = [...new Set([...Object.keys(mapA), ...Object.keys(mapB)])];
+
+    const rowsData = unionNames.map(name => {
+      const a = mapA[name], b = mapB[name];
+      const toA = a ? a['אחוז הצבעה'] : null;
+      const toB = b ? b['אחוז הצבעה'] : null;
+      const delta = (toA!=null && toB!=null && !isNaN(toA) && !isNaN(toB)) ? toB-toA : null;
+      const topA = topPartiesForRow(a, dA.partyCols, 2);
+      const topB = topPartiesForRow(b, dB.partyCols, 2);
+      return {name, toA, toB, delta, topA, topB};
+    }).sort((x,y) => Math.abs(y.delta ?? -1) - Math.abs(x.delta ?? -1));
+
+    const cityTopA = topPartiesForRow(cityA, dA.partyCols, 1);
+    const cityTopB = topPartiesForRow(cityB, dB.partyCols, 1);
+
+    content.innerHTML = `
+      <div class="kpirow">
+        <div class="kpi"><div class="label">אחוז הצבעה ברשות — מחזור ${rA}</div><div class="value">${cityA?fmtPct(cityA['אחוז הצבעה']):'—'}</div></div>
+        <div class="kpi"><div class="label">אחוז הצבעה ברשות — מחזור ${rB}</div><div class="value">${cityB?fmtPct(cityB['אחוז הצבעה']):'—'}</div></div>
+        <div class="kpi"><div class="label">מקום ראשון — מחזור ${rA}</div><div class="value">${placeCell(cityTopA[0], dA.colors)}</div></div>
+        <div class="kpi"><div class="label">מקום ראשון — מחזור ${rB}</div><div class="value">${placeCell(cityTopB[0], dB.colors)}</div></div>
+      </div>
+      <div class="card">
+        <div class="cardhead">
+          <h3>שינוי לפי שכונה — ${cityFilter}</h3>
+          <button class="exportbtn" id="exportRcCity">ייצוא לאקסל</button>
+        </div>
+        <div class="desc">ממוין לפי גודל השינוי באחוז ההצבעה</div>
+        <div style="overflow-x:auto;">
+        <table><thead><tr>
+          <th>שכונה</th><th>אחוז הצבעה ${rA}</th><th>אחוז הצבעה ${rB}</th><th>שינוי</th>
+          <th>מקום ראשון ${rA}</th><th>מקום שני ${rA}</th><th>מקום ראשון ${rB}</th><th>מקום שני ${rB}</th>
+        </tr></thead><tbody>
+          ${rowsData.map(r => `<tr>
+            <td>${r.name}</td>
+            <td class="num">${r.toA==null?'—':fmtPct(r.toA)}</td>
+            <td class="num">${r.toB==null?'—':fmtPct(r.toB)}</td>
+            <td class="num">${r.delta==null?'—':fmtDelta(r.delta,' נק׳')}</td>
+            <td>${placeCell(r.topA[0], dA.colors)}</td>
+            <td>${placeCell(r.topA[1], dA.colors)}</td>
+            <td>${placeCell(r.topB[0], dB.colors)}</td>
+            <td>${placeCell(r.topB[1], dB.colors)}</td>
+          </tr>`).join('')}
+        </tbody></table>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('exportRcCity').onclick = () => exportRows(
+      rowsData.map(r=>({
+        'שכונה': r.name,
+        [`אחוז הצבעה ${rA}`]: r.toA==null?'':r.toA, [`אחוז הצבעה ${rB}`]: r.toB==null?'':r.toB,
+        'שינוי': r.delta==null?'':+r.delta.toFixed(2),
+        [`מקום ראשון ${rA}`]: r.topA[0]?r.topA[0].p:'', [`אחוז ${rA}`]: r.topA[0]?+r.topA[0].pct.toFixed(1):'',
+        [`מקום שני ${rA}`]: r.topA[1]?r.topA[1].p:'', [`אחוז שני ${rA}`]: r.topA[1]?+r.topA[1].pct.toFixed(1):'',
+        [`מקום ראשון ${rB}`]: r.topB[0]?r.topB[0].p:'', [`אחוז ${rB}`]: r.topB[0]?+r.topB[0].pct.toFixed(1):'',
+        [`מקום שני ${rB}`]: r.topB[1]?r.topB[1].p:'', [`אחוז שני ${rB}`]: r.topB[1]?+r.topB[1].pct.toFixed(1):''
+      })),
+      `השוואת_שכונות_${(cityFilter||'').replace(/[\\/:*?"<>|]/g,'')}_${rA}_מול_${rB}.xlsx`, 'השוואה'
+    );
+  }
+}
+
+/* ---------------- FULL TABLE TAB ---------------- */
+let tablePage = 0;
+const PAGE_SIZE = 50;
+let sortCol = null, sortDir = 1;
+
+function currentTableData(){
+  const level = document.getElementById('tableLevelSelect').value;
+  return level === 'neighborhood' ? neighborhoodData : municipalData;
+}
+function currentTableCols(){
+  const level = document.getElementById('tableLevelSelect').value;
+  const meta = level === 'neighborhood' ? NEI_META : MUN_META;
+  return meta.filter(c => c!=='id' && c!=='מחזור_בחירות').concat(partyCols);
+}
+
+function renderTable(){
+  const data = currentTableData();
+  const cols = currentTableCols();
+  const search = document.getElementById('tableSearch').value.trim().toLowerCase();
+
+  let filtered = data.filter(r => r['id']!==-1 && r['id']!=='-1');
+  if(search){
+    filtered = filtered.filter(r =>
+      (r['שם ישוב']||'').toLowerCase().includes(search) ||
+      (r['neighborhood_name']||'').toLowerCase().includes(search)
+    );
+  }
+  if(sortCol){
+    filtered = filtered.slice().sort((a,b) => {
+      const av = a[sortCol], bv = b[sortCol];
+      if(typeof av === 'number' && typeof bv === 'number') return (av-bv)*sortDir;
+      return String(av||'').localeCompare(String(bv||''), 'he') * sortDir;
+    });
+  }
+
+  document.getElementById('tableHead').innerHTML = cols.map(c =>
+    `<th data-col="${c}" class="${sortCol===c ? 'sorted '+(sortDir===1?'asc':'') : ''}">${c}</th>`
+  ).join('');
+  document.querySelectorAll('#tableHead th').forEach(th => {
+    th.addEventListener('click', () => {
+      const c = th.dataset.col;
+      if(sortCol===c) sortDir *= -1; else { sortCol=c; sortDir=1; }
+      renderTable();
+    });
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  tablePage = Math.min(tablePage, totalPages-1);
+  const pageRows = filtered.slice(tablePage*PAGE_SIZE, (tablePage+1)*PAGE_SIZE);
+
+  document.getElementById('tableBody').innerHTML = pageRows.length ? pageRows.map(r =>
+    '<tr>' + cols.map(c => {
+      if(c === 'winner_party') return `<td>${partyChip(r[c])}</td>`;
+      if(c === 'אחוז הצבעה') return `<td class="num">${fmtPct(r[c])}</td>`;
+      if(typeof r[c] === 'number') return `<td class="num">${fmtNum(r[c])}</td>`;
+      return `<td>${r[c] ?? ''}</td>`;
+    }).join('') + '</tr>'
+  ).join('') : `<tr><td colspan="${cols.length}" class="empty">אין תוצאות תואמות</td></tr>`;
+
+  document.getElementById('pageInfo').textContent =
+    `מציג ${pageRows.length ? tablePage*PAGE_SIZE+1 : 0}–${tablePage*PAGE_SIZE+pageRows.length} מתוך ${filtered.length}`;
+
+  window._filteredForExport = filtered;
+}
+
+function exportTableView(){
+  const cols = currentTableCols();
+  const data = (window._filteredForExport || []).map(r => {
+    const o = {};
+    cols.forEach(c => o[c] = r[c]);
+    return o;
+  });
+  exportRows(data, 'election_results_filtered.xlsx', 'תצוגה מסוננת');
+}
+</script>
+</body>
+</html>
