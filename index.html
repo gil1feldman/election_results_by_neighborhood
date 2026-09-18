@@ -563,6 +563,17 @@ function hex2rgba(hex, alpha){
   const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
+/** green(low) -> red(high) heatmap color, softened by blending with white */
+function heatmapBg(frac){
+  frac = Math.max(0, Math.min(1, frac));
+  const low = [30,142,90], high = [196,53,28];
+  const mixed = low.map((c,i) => c + (high[i]-c)*frac);
+  const blended = mixed.map(c => Math.round(255 + (c-255)*0.55));
+  return `rgb(${blended[0]},${blended[1]},${blended[2]})`;
+}
+function colFrac(v, min, max){
+  return max > min ? (v-min)/(max-min) : 0.5;
+}
 /** top N parties for a data row, with vote share of the kosher-vote total */
 function topPartiesForRow(row, cols, n){
   if(!row) return [];
@@ -664,6 +675,21 @@ function renderNationalPartyChart(){
 }
 
 /* ---------------- CITY TAB ---------------- */
+let cityNeiSortCol = 'אחוז הצבעה', cityNeiSortDir = -1;
+const CITY_COLS = [
+  {key:'neighborhood_name', label:'שכונה'},
+  {key:'אחוז הצבעה', label:'אחוז הצבעה'},
+  {key:'בזב', label:'בז״ב'},
+  {key:'מצביעים', label:'מצביעים'},
+  {key:'place1', label:'מקום ראשון'},
+  {key:'place2', label:'מקום שני'}
+];
+function cityRowSortValue(r, key){
+  if(key==='neighborhood_name') return r['neighborhood_name']||'';
+  if(key==='place1') return (topPartiesForRow(r,partyCols,1)[0]||{}).pct||0;
+  if(key==='place2') return (topPartiesForRow(r,partyCols,2)[1]||{}).pct||0;
+  return Number(r[key])||0;
+}
 function populateCityList(){
   const names = [...new Set(municipalData.map(r => r['שם ישוב']))].filter(Boolean).sort();
   document.getElementById('cityList').innerHTML = names.map(n => `<option value="${n}">`).join('');
@@ -685,7 +711,11 @@ function onCitySelected(){
   const turnout = cityRow ? cityRow['אחוז הצבעה'] : (eligible ? voters/eligible*100 : NaN);
   const cityTop2 = topPartiesForRow(cityRow, partyCols, 2);
 
-  const sortedByTurnout = rows.slice().sort((a,b)=>(b['אחוז הצבעה']||0)-(a['אחוז הצבעה']||0));
+  const sortedByTurnout = rows.slice().sort((a,b) => {
+    const av = cityRowSortValue(a, cityNeiSortCol), bv = cityRowSortValue(b, cityNeiSortCol);
+    if(typeof av === 'string') return av.localeCompare(bv, 'he') * cityNeiSortDir;
+    return (av-bv) * cityNeiSortDir;
+  });
 
   const cityTotals = {};
   partyCols.forEach(p => cityTotals[p] = rows.reduce((s,r)=>s+(Number(r[p])||0),0));
@@ -706,11 +736,9 @@ function onCitySelected(){
         <h3>שכונות ברשות</h3>
         <button class="exportbtn" id="exportCityNei">ייצוא לאקסל</button>
       </div>
-      <div class="desc">לחיצה על שורה פותחת את המפלגות המובילות באותה שכונה</div>
+      <div class="desc">לחיצה על שורה פותחת את המפלגות המובילות באותה שכונה · לחיצה על כותרת עמודה ממיינת לפיה. אחוז ההצבעה, בז״ב והמצביעים צבועים כמפת חום עצמאית לכל עמודה (ירוק = נמוך, אדום = גבוה)</div>
       <div style="overflow-x:auto;">
-      <table><thead><tr>
-        <th style="width:20px;"></th><th>שכונה</th><th>בז״ב</th><th>מצביעים</th><th>אחוז הצבעה</th><th>מקום ראשון</th><th>מקום שני</th>
-      </tr></thead><tbody id="cityNeiTableBody"></tbody></table>
+      <table><thead><tr id="cityNeiHead"><th style="width:20px;"></th></tr></thead><tbody id="cityNeiTableBody"></tbody></table>
       </div>
     </div>
 
@@ -729,25 +757,48 @@ function onCitySelected(){
   // --- expandable neighborhoods table ---
   const tbody = document.getElementById('cityNeiTableBody');
   const exportNeiRows = [];
+
+  document.getElementById('cityNeiHead').innerHTML = '<th style="width:20px;"></th>' + CITY_COLS.map(c =>
+    `<th data-col="${c.key}" class="${cityNeiSortCol===c.key ? 'sorted '+(cityNeiSortDir===1?'asc':'') : ''}">${c.label}</th>`
+  ).join('');
+  document.querySelectorAll('#cityNeiHead th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.col;
+      if(cityNeiSortCol === key) cityNeiSortDir *= -1; else { cityNeiSortCol = key; cityNeiSortDir = key==='neighborhood_name' ? 1 : -1; }
+      onCitySelected();
+    });
+  });
+
+  const turnoutVals = sortedByTurnout.map(r => Number(r['אחוז הצבעה'])||0);
+  const eligibleVals = sortedByTurnout.map(r => Number(r['בזב'])||0);
+  const votersVals = sortedByTurnout.map(r => Number(r['מצביעים'])||0);
+  const tMin = Math.min(...turnoutVals), tMax = Math.max(...turnoutVals);
+  const eMin = Math.min(...eligibleVals), eMax = Math.max(...eligibleVals);
+  const vMin = Math.min(...votersVals), vMax = Math.max(...votersVals);
+
   tbody.innerHTML = sortedByTurnout.map((r, idx) => {
     const top5 = topPartiesForRow(r, partyCols, 5);
     const top2 = top5.slice(0,2);
     const chips = top5.map(x => `<span class="chip" style="background:${partyColorMap[x.p]}">${x.p} ${x.pct.toFixed(1)}%</span>`).join(' ');
 
     exportNeiRows.push({
-      'שכונה': r['neighborhood_name'] ?? '',
-      'בז"ב': r['בזב'], 'מצביעים': r['מצביעים'], 'אחוז הצבעה': r['אחוז הצבעה'],
+      'שכונה': r['neighborhood_name'] ?? '', 'אחוז הצבעה': r['אחוז הצבעה'],
+      'בז"ב': r['בזב'], 'מצביעים': r['מצביעים'],
       'מקום ראשון': top2[0] ? top2[0].p : '', 'אחוז מקום ראשון': top2[0] ? +top2[0].pct.toFixed(1) : '',
       'מקום שני': top2[1] ? top2[1].p : '', 'אחוז מקום שני': top2[1] ? +top2[1].pct.toFixed(1) : ''
     });
+
+    const tBg = heatmapBg(colFrac(turnoutVals[idx], tMin, tMax));
+    const eBg = heatmapBg(colFrac(eligibleVals[idx], eMin, eMax));
+    const vBg = heatmapBg(colFrac(votersVals[idx], vMin, vMax));
 
     return `
       <tr class="expandable" data-idx="${idx}">
         <td><span class="expandicon">▸</span></td>
         <td>${r['neighborhood_name'] ?? '—'}</td>
-        <td class="num">${fmtNum(r['בזב'])}</td>
-        <td class="num">${fmtNum(r['מצביעים'])}</td>
-        <td class="num">${fmtPct(r['אחוז הצבעה'])}</td>
+        <td class="heatcell" style="background:${tBg}">${fmtPct(r['אחוז הצבעה'])}</td>
+        <td class="heatcell" style="background:${eBg}">${fmtNum(r['בזב'])}</td>
+        <td class="heatcell" style="background:${vBg}">${fmtNum(r['מצביעים'])}</td>
         <td>${placeCell(top2[0])}</td>
         <td>${placeCell(top2[1])}</td>
       </tr>
