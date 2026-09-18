@@ -270,6 +270,7 @@
   <nav class="tabs">
     <button class="tabbtn" data-tab="national">סקירה ארצית</button>
     <button class="tabbtn active" data-tab="city">רשות בודדת</button>
+    <button class="tabbtn" data-tab="oppo">מיקוד השקעה לאופוזיציה</button>
     <button class="tabbtn" data-tab="roundcompare">השוואה בין בחירות לכנסת</button>
     <button class="tabbtn" data-tab="table">טבלת נתונים</button>
   </nav>
@@ -321,6 +322,17 @@
         <datalist id="cityList"></datalist>
       </div>
       <div id="cityContent"><div class="empty">בחר רשות מהרשימה כדי לראות פירוט שכונות</div></div>
+    </section>
+
+    <!-- ===== OPPOSITION TARGETING ===== -->
+    <section class="panel" id="panel-oppo">
+      <div class="toolbar">
+        <input type="text" id="oppoCitySearch" list="cityList" class="grow" placeholder="הקלד שם רשות / יישוב...">
+        <label class="mono" style="font-size:.82rem;color:var(--muted);white-space:nowrap;">בז״ב מינימלי לשכונה:</label>
+        <input type="number" id="oppoMinVoters" value="0" min="0" style="max-width:110px;">
+        <button class="ghost" id="oppoRunBtn">הצג</button>
+      </div>
+      <div id="oppoContent"><div class="empty">בחר יישוב מהרשימה כדי לראות את מטריצת השכונות שלו</div></div>
     </section>
 
     <!-- ===== ROUND COMPARE ===== -->
@@ -514,6 +526,7 @@ function applyRound(r){
 
   renderNational();
   populateCityList();
+  renderOppo();
   tablePage = 0;
   renderTable();
 }
@@ -602,6 +615,9 @@ function initApp(startRound){
   document.getElementById('roundSelect').onchange = e => applyRound(e.target.value);
   document.getElementById('natMetricSelect').onchange = renderNationalPartyChart;
   document.getElementById('citySearch').onchange = onCitySelected;
+  document.getElementById('oppoRunBtn').onclick = renderOppo;
+  document.getElementById('oppoCitySearch').onchange = renderOppo;
+  document.getElementById('oppoMinVoters').addEventListener('change', renderOppo);
   document.getElementById('rcRunBtn').onclick = renderRoundCompare;
   document.getElementById('tableLevelSelect').onchange = () => { tablePage=0; renderTable(); };
   document.getElementById('tableSearch').oninput = () => { tablePage=0; renderTable(); };
@@ -850,6 +866,189 @@ function onCitySelected(){
 
   document.getElementById('exportCityHeat').onclick = () =>
     exportRows(exportHeatRows, `מפלגות_לפי_שכונה_${(name||'רשות').replace(/[\\/:*?"<>|]/g,'')}.xlsx`, 'מטריצה');
+}
+
+/* ---------------- OPPOSITION TARGETING TAB ---------------- */
+const OPPOSITION_PARTIES = {
+  '25': ['פה','כן','ל','עם','ום','אמת','מרצ'],
+  '24': ['פה','כן','אמת','ל','ודעם','מרצ','עם']
+};
+let oppoChart;
+let oppoSortCol = 'y', oppoSortDir = -1;
+const OPPO_COLS = [
+  {key:'name', label:'שכונה'},
+  {key:'x', label:'אחוז הצבעה'},
+  {key:'y', label:'אחוז לאופוזיציה'},
+  {key:'category', label:'קטגוריה'},
+  {key:'voters', label:'מצביעים'},
+  {key:'eligible', label:'בז״ב'}
+];
+const crosshairPlugin = {
+  id: 'crosshair',
+  afterDraw(chart){
+    const opts = chart.options.plugins && chart.options.plugins.crosshair;
+    if(!opts) return;
+    const {ctx, chartArea, scales} = chart;
+    ctx.save();
+    ctx.strokeStyle = opts.color || '#66707E';
+    ctx.setLineDash([5,4]);
+    ctx.lineWidth = 1;
+    if(opts.x != null && !isNaN(opts.x)){
+      const xPix = scales.x.getPixelForValue(opts.x);
+      ctx.beginPath();
+      ctx.moveTo(xPix, chartArea.top);
+      ctx.lineTo(xPix, chartArea.bottom);
+      ctx.stroke();
+    }
+    if(opts.y != null && !isNaN(opts.y)){
+      const yPix = scales.y.getPixelForValue(opts.y);
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, yPix);
+      ctx.lineTo(chartArea.right, yPix);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+};
+
+function oppositionPctForRow(row, list){
+  const kosher = Number(row['כשרים'])||0;
+  if(!kosher) return 0;
+  const sum = list.reduce((s,p) => s + (Number(row[p])||0), 0);
+  return sum/kosher*100;
+}
+
+function oppoSortValue(p, key){
+  if(key==='name' || key==='category') return p[key]||'';
+  return Number(p[key])||0;
+}
+
+function renderOppo(){
+  const container = document.getElementById('oppoContent');
+  const list = OPPOSITION_PARTIES[currentRound];
+  if(!list){
+    container.innerHTML = '<div class="empty">רשימת מפלגות האופוזיציה מוגדרת רק עבור הכנסת ה-25 וה-24 — בחר אחת מהן בבורר הבחירות למעלה</div>';
+    return;
+  }
+
+  const cityName = document.getElementById('oppoCitySearch').value.trim();
+  if(!cityName){
+    container.innerHTML = '<div class="empty">בחר יישוב מהרשימה כדי לראות את מטריצת השכונות שלו</div>';
+    if(oppoChart){ oppoChart.destroy(); oppoChart = null; }
+    return;
+  }
+
+  const {cityRow, rows} = neighborhoodsForCity(neighborhoodData, municipalData, cityName);
+  if(!cityRow && rows.length === 0){
+    container.innerHTML = '<div class="empty">יישוב לא נמצא — בחר שם מהרשימה הנפתחת</div>';
+    return;
+  }
+
+  const minBz = Number(document.getElementById('oppoMinVoters').value) || 0;
+  const neighborhoods = rows.filter(r => (Number(r['בזב'])||0) >= minBz && !isNaN(Number(r['אחוז הצבעה'])));
+
+  const cityTurnout = cityRow ? cityRow['אחוז הצבעה'] : NaN;
+  const cityOppo = cityRow ? oppositionPctForRow(cityRow, list) : NaN;
+
+  let points = neighborhoods.map(r => {
+    const y = oppositionPctForRow(r, list);
+    const x = r['אחוז הצבעה'];
+    const eligible = Number(r['בזב'])||0;
+    let category, color;
+    if(y>=cityOppo && x<cityTurnout){ category='עדיפות להשקעה'; color='#C4351C'; }
+    else if(y>=cityOppo && x>=cityTurnout){ category='מגויס היטב'; color='#1E8E5A'; }
+    else { category='פוטנציאל נמוך'; color='#9AA5B1'; }
+    return {x, y, name: r['neighborhood_name'] ?? r['id'], eligible, voters: r['מצביעים'], category, color};
+  });
+
+  // bubble radius = sqrt(בז"ב), min-max normalized into a bounded range, so no giant-vs-tiny extremes
+  const RADIUS_MIN = 6, RADIUS_MAX = 22;
+  const sqrtVals = points.map(p => Math.sqrt(Math.max(p.eligible,0)));
+  const sMin = Math.min(...sqrtVals, 0), sMax = Math.max(...sqrtVals, 0);
+  points.forEach((p,i) => {
+    p.r = sMax > sMin ? RADIUS_MIN + (sqrtVals[i]-sMin)/(sMax-sMin)*(RADIUS_MAX-RADIUS_MIN) : (RADIUS_MIN+RADIUS_MAX)/2;
+  });
+
+  points.sort((a,b) => {
+    const av = oppoSortValue(a, oppoSortCol), bv = oppoSortValue(b, oppoSortCol);
+    if(typeof av === 'string') return av.localeCompare(bv,'he') * oppoSortDir;
+    return (av-bv) * oppoSortDir;
+  });
+
+  container.innerHTML = `
+    <div class="kpirow">
+      <div class="kpi"><div class="label">יישוב</div><div class="value" style="font-size:1.1rem;">${cityName}</div></div>
+      <div class="kpi"><div class="label">אחוז הצבעה ברשות</div><div class="value">${fmtPct(cityTurnout)}</div></div>
+      <div class="kpi"><div class="label">אחוז הצבעה לאופוזיציה ברשות</div><div class="value">${fmtPct(cityOppo)}</div></div>
+      <div class="kpi"><div class="label">שכונות מוצגות</div><div class="value">${fmtNum(points.length)}</div></div>
+    </div>
+    <div class="card">
+      <h3>מפת השקעה — שכונות ב${cityName}</h3>
+      <div class="desc">
+        כל עיגול = שכונה; גודל העיגול מייצג את בז״ב השכונה (בסקאלה מרוסנת כדי שלא יהיו עיגולים ענקיים לצד קטנטנים).
+        הקווים המקווקווים מסמנים את הממוצע ברמת הרשות עצמה לכל ציר.
+        <span style="color:#C4351C;font-weight:600;">אדום</span> = אופוזיציה חזקה אך הצבעה נמוכה (כדאי להשקיע כאן) ·
+        <span style="color:#1E8E5A;font-weight:600;">ירוק</span> = אופוזיציה חזקה והצבעה כבר גבוהה ·
+        <span style="color:#9AA5B1;font-weight:600;">אפור</span> = אופוזיציה חלשה
+      </div>
+      <canvas id="oppoChart" height="110"></canvas>
+    </div>
+    <div class="card">
+      <div class="cardhead">
+        <h3>טבלת שכונות</h3>
+        <button class="exportbtn" id="exportOppoTable">ייצוא לאקסל</button>
+      </div>
+      <div class="desc">לחיצה על כותרת עמודה ממיינת לפיה</div>
+      <div style="overflow-x:auto;">
+        <table><thead><tr id="oppoTableHead"></tr></thead><tbody id="oppoTableBody"></tbody></table>
+      </div>
+    </div>
+  `;
+
+  if(oppoChart) oppoChart.destroy();
+  oppoChart = new Chart(document.getElementById('oppoChart'), {
+    type: 'bubble',
+    data: { datasets: [{ data: points, backgroundColor: points.map(p=>hex2rgba(p.color,0.7)), borderColor: points.map(p=>p.color), borderWidth: 1 }] },
+    options: {
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => `${c.raw.name}: הצבעה ${c.raw.x.toFixed(1)}% · אופוזיציה ${c.raw.y.toFixed(1)}% · בז״ב ${fmtNum(c.raw.eligible)}` } },
+        crosshair: { x: cityTurnout, y: cityOppo, color: '#66707E' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'אחוז הצבעה' } },
+        y: { title: { display: true, text: 'אחוז הצבעה לאופוזיציה' } }
+      }
+    },
+    plugins: [crosshairPlugin]
+  });
+
+  document.getElementById('oppoTableHead').innerHTML = OPPO_COLS.map(c =>
+    `<th data-col="${c.key}" class="${oppoSortCol===c.key ? 'sorted '+(oppoSortDir===1?'asc':'') : ''}">${c.label}</th>`
+  ).join('');
+  document.querySelectorAll('#oppoTableHead th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.col;
+      if(oppoSortCol === key) oppoSortDir *= -1; else { oppoSortCol = key; oppoSortDir = (key==='name'||key==='category') ? 1 : -1; }
+      renderOppo();
+    });
+  });
+
+  document.getElementById('oppoTableBody').innerHTML = points.map(p => `
+    <tr>
+      <td>${p.name}</td>
+      <td class="num">${fmtPct(p.x)}</td>
+      <td class="num">${fmtPct(p.y)}</td>
+      <td><span class="chip" style="background:${p.color}">${p.category}</span></td>
+      <td class="num">${fmtNum(p.voters)}</td>
+      <td class="num">${fmtNum(p.eligible)}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('exportOppoTable').onclick = () => exportRows(
+    points.map(p => ({'שכונה':p.name, 'אחוז הצבעה':+p.x.toFixed(2), 'אחוז לאופוזיציה':+p.y.toFixed(2), 'קטגוריה':p.category, 'מצביעים':p.voters, 'בז"ב':p.eligible})),
+    `מיקוד_השקעה_${cityName.replace(/[\\/:*?"<>|]/g,'')}_${labelForRound(currentRound).replace(/\s+/g,'_')}.xlsx`, 'מיקוד השקעה'
+  );
 }
 
 /* ---------------- ROUND COMPARE TAB ---------------- */
