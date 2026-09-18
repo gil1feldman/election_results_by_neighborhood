@@ -211,6 +211,14 @@
   .pagerow{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:.85rem;color:var(--muted);}
   .detailchips{display:flex;flex-wrap:wrap;gap:8px;}
   canvas{max-width:100%;}
+  .sitefooter{
+    text-align:center;
+    color:var(--muted);
+    font-size:.82rem;
+    padding:18px 20px 34px;
+  }
+  .sitefooter a{color:var(--accent-dark);text-decoration:none;font-weight:600;}
+  .sitefooter a:hover{text-decoration:underline;}
 
   @media (max-width:700px){
     header.top{padding:14px 16px;}
@@ -253,12 +261,9 @@
   <header class="top">
     <div>
       <h1>ניתוח תוצאות בחירות לפי שכונות</h1>
-      <div class="subtitle" id="fileStatus"></div>
     </div>
     <div class="controls">
       <select id="roundSelect" title="בחירות לכנסת"></select>
-      <button class="ghost" id="refreshBtn">רענן מ-GitHub</button>
-      <button class="ghost" id="reloadBtn">טען קובץ אחר</button>
     </div>
   </header>
 
@@ -352,6 +357,7 @@
       </div>
     </section>
   </main>
+  <footer class="sitefooter">מקור הנתונים: ועדת הבחירות המרכזית · פיתוח: <a href="https://x.com/feldman_gil" target="_blank" rel="noopener">גיל פלדמן</a></footer>
 </div>
 
 <script>
@@ -475,9 +481,6 @@ function processWorkbook(arrayBuffer, sourceLabel){
       rounds.map(r => `<option value="${r}">${labelForRound(r)}</option>`).join('');
     document.getElementById('roundSelect').value = keepRound;
 
-    document.getElementById('fileStatus').textContent =
-      `${sourceLabel} · בחירות זמינות: ${rounds.map(labelForRound).join(', ')} · עודכן ${new Date().toLocaleTimeString('he-IL')}`;
-
     document.getElementById('uploadScreen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
     initApp(keepRound);
@@ -586,8 +589,6 @@ function initApp(startRound){
   populateRoundCompareSelectors();
 
   document.getElementById('roundSelect').onchange = e => applyRound(e.target.value);
-  document.getElementById('refreshBtn').onclick = () => autoLoadFromGithub(true);
-  document.getElementById('reloadBtn').onclick = showManualUpload;
   document.getElementById('natMetricSelect').onchange = renderNationalPartyChart;
   document.getElementById('citySearch').onchange = onCitySelected;
   document.getElementById('rcRunBtn').onclick = renderRoundCompare;
