@@ -690,6 +690,15 @@ function cityRowSortValue(r, key){
   if(key==='place2') return (topPartiesForRow(r,partyCols,2)[1]||{}).pct||0;
   return Number(r[key])||0;
 }
+/** match neighborhoods to a city by SETL_CODE (robust to small spelling differences in "שם ישוב" between the two sheets), falling back to a name match */
+function neighborhoodsForCity(neighborhoodArr, municipalArr, cityName){
+  const cityRow = municipalArr.find(r => r['שם ישוב'] === cityName);
+  if(cityRow && cityRow['SETL_CODE'] !== undefined && cityRow['SETL_CODE'] !== null && cityRow['SETL_CODE'] !== ''){
+    const bySetl = neighborhoodArr.filter(r => String(r['SETL_CODE']) === String(cityRow['SETL_CODE']) && r['id']!==-1 && r['id']!=='-1');
+    if(bySetl.length) return {cityRow, rows: bySetl};
+  }
+  return {cityRow, rows: neighborhoodArr.filter(r => r['שם ישוב'] === cityName && r['id']!==-1 && r['id']!=='-1')};
+}
 function populateCityList(){
   const names = [...new Set(municipalData.map(r => r['שם ישוב']))].filter(Boolean).sort();
   document.getElementById('cityList').innerHTML = names.map(n => `<option value="${n}">`).join('');
@@ -697,8 +706,7 @@ function populateCityList(){
 
 function onCitySelected(){
   const name = document.getElementById('citySearch').value.trim();
-  const cityRow = municipalData.find(r => r['שם ישוב'] === name);
-  const rows = neighborhoodData.filter(r => r['שם ישוב'] === name && r['id'] !== -1 && r['id'] !== '-1');
+  const {cityRow, rows} = neighborhoodsForCity(neighborhoodData, municipalData, name);
   const container = document.getElementById('cityContent');
 
   if(!cityRow && rows.length === 0){
@@ -915,8 +923,8 @@ function renderRoundCompare(){
   } else {
     const cityA = dA.municipal.find(r => r['שם ישוב']===cityFilter);
     const cityB = dB.municipal.find(r => r['שם ישוב']===cityFilter);
-    const neiA = dA.neighborhood.filter(r => r['שם ישוב']===cityFilter && r['id']!==-1 && r['id']!=='-1');
-    const neiB = dB.neighborhood.filter(r => r['שם ישוב']===cityFilter && r['id']!==-1 && r['id']!=='-1');
+    const neiA = neighborhoodsForCity(dA.neighborhood, dA.municipal, cityFilter).rows;
+    const neiB = neighborhoodsForCity(dB.neighborhood, dB.municipal, cityFilter).rows;
 
     if(!cityA && !cityB && neiA.length===0 && neiB.length===0){
       content.innerHTML = '<div class="empty">רשות לא נמצאה באחת הבחירות שנבחרו — בחר שם מהרשימה הנפתחת</div>';
