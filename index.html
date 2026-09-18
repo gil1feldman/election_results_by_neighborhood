@@ -219,6 +219,25 @@
   }
   .sitefooter a{color:var(--accent-dark);text-decoration:none;font-weight:600;}
   .sitefooter a:hover{text-decoration:underline;}
+  .avgbadge{
+    display:inline-block;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:.68rem;
+    padding:2px 8px;
+    border-radius:100px;
+    margin-top:5px;
+  }
+  .badge-up{background:#E8F4FA;color:var(--accent-dark);}
+  .badge-down{background:#EFEBE8;color:#8a6a4c;}
+  .prioritylist{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:8px;}
+  .prioritylist li{
+    background:#FBF1EF;
+    border:1px solid #F0D7CF;
+    border-radius:8px;
+    padding:8px 12px;
+    font-size:.86rem;
+  }
+  .prioritylist b{color:#C4351C;}
 
   @media (max-width:700px){
     header.top{padding:14px 16px;}
@@ -270,7 +289,6 @@
   <nav class="tabs">
     <button class="tabbtn" data-tab="national">סקירה ארצית</button>
     <button class="tabbtn active" data-tab="city">רשות בודדת</button>
-    <button class="tabbtn" data-tab="oppo">מיקוד השקעה לאופוזיציה</button>
     <button class="tabbtn" data-tab="roundcompare">השוואה בין בחירות לכנסת</button>
     <button class="tabbtn" data-tab="table">טבלת נתונים</button>
   </nav>
@@ -320,19 +338,9 @@
       <div class="toolbar">
         <input type="text" id="citySearch" list="cityList" class="grow" placeholder="הקלד שם רשות / יישוב...">
         <datalist id="cityList"></datalist>
+        <button class="ghost" id="cityReportBtn">הכן דוח רשות</button>
       </div>
       <div id="cityContent"><div class="empty">בחר רשות מהרשימה כדי לראות פירוט שכונות</div></div>
-    </section>
-
-    <!-- ===== OPPOSITION TARGETING ===== -->
-    <section class="panel" id="panel-oppo">
-      <div class="toolbar">
-        <input type="text" id="oppoCitySearch" list="cityList" class="grow" placeholder="הקלד שם רשות / יישוב...">
-        <label class="mono" style="font-size:.82rem;color:var(--muted);white-space:nowrap;">בז״ב מינימלי לשכונה:</label>
-        <input type="number" id="oppoMinVoters" value="0" min="0" style="max-width:110px;">
-        <button class="ghost" id="oppoRunBtn">הצג</button>
-      </div>
-      <div id="oppoContent"><div class="empty">בחר יישוב מהרשימה כדי לראות את מטריצת השכונות שלו</div></div>
     </section>
 
     <!-- ===== ROUND COMPARE ===== -->
@@ -523,10 +531,11 @@ function applyRound(r){
 
   document.getElementById('citySearch').value = '';
   document.getElementById('cityContent').innerHTML = '<div class="empty">בחר רשות מהרשימה כדי לראות פירוט שכונות</div>';
+  cityLastState = null;
+  oppoLastState = null;
 
   renderNational();
   populateCityList();
-  renderOppo();
   tablePage = 0;
   renderTable();
 }
@@ -615,9 +624,7 @@ function initApp(startRound){
   document.getElementById('roundSelect').onchange = e => applyRound(e.target.value);
   document.getElementById('natMetricSelect').onchange = renderNationalPartyChart;
   document.getElementById('citySearch').onchange = onCitySelected;
-  document.getElementById('oppoRunBtn').onclick = renderOppo;
-  document.getElementById('oppoCitySearch').onchange = renderOppo;
-  document.getElementById('oppoMinVoters').addEventListener('change', renderOppo);
+  document.getElementById('cityReportBtn').onclick = generateCityReport;
   document.getElementById('rcRunBtn').onclick = renderRoundCompare;
   document.getElementById('tableLevelSelect').onchange = () => { tablePage=0; renderTable(); };
   document.getElementById('tableSearch').oninput = () => { tablePage=0; renderTable(); };
@@ -692,6 +699,7 @@ function renderNationalPartyChart(){
 
 /* ---------------- CITY TAB ---------------- */
 let cityNeiSortCol = 'אחוז הצבעה', cityNeiSortDir = -1;
+let cityLastState = null;
 const CITY_COLS = [
   {key:'neighborhood_name', label:'שכונה'},
   {key:'אחוז הצבעה', label:'אחוז הצבעה'},
@@ -727,6 +735,7 @@ function onCitySelected(){
 
   if(!cityRow && rows.length === 0){
     container.innerHTML = '<div class="empty">רשות לא נמצאה — בחר שם מהרשימה הנפתחת</div>';
+    cityLastState = null;
     return;
   }
 
@@ -776,6 +785,8 @@ function onCitySelected(){
         <table><thead><tr id="cityHeatHead"></tr></thead><tbody id="cityHeatBody"></tbody></table>
       </div>
     </div>
+
+    <div id="cityOppoSection"></div>
   `;
 
   // --- expandable neighborhoods table ---
@@ -866,6 +877,9 @@ function onCitySelected(){
 
   document.getElementById('exportCityHeat').onclick = () =>
     exportRows(exportHeatRows, `מפלגות_לפי_שכונה_${(name||'רשות').replace(/[\\/:*?"<>|]/g,'')}.xlsx`, 'מטריצה');
+
+  cityLastState = {name, cityRow, eligible, voters, turnout, cityTop2, sortedByTurnout, exportNeiRows};
+  renderCityOpposition(name, rows, cityRow);
 }
 
 /* ---------------- OPPOSITION TARGETING TAB ---------------- */
@@ -922,29 +936,57 @@ function oppoSortValue(p, key){
   if(key==='name' || key==='category') return p[key]||'';
   return Number(p[key])||0;
 }
+let oppoLastState = null;
 
-function renderOppo(){
-  const container = document.getElementById('oppoContent');
+function nationalAverages(list){
+  const cities = municipalData.filter(r => r['id']!==-1 && r['id']!=='-1');
+  const sumEligible = cities.reduce((s,r)=>s+(Number(r['בזב'])||0),0);
+  const sumVoters = cities.reduce((s,r)=>s+(Number(r['מצביעים'])||0),0);
+  const sumKosher = cities.reduce((s,r)=>s+(Number(r['כשרים'])||0),0);
+  const sumOppo = cities.reduce((s,r)=>s+list.reduce((ss,p)=>ss+(Number(r[p])||0),0),0);
+  return {
+    turnout: sumEligible ? sumVoters/sumEligible*100 : NaN,
+    oppo: sumKosher ? sumOppo/sumKosher*100 : NaN
+  };
+}
+function avgBadge(value, ref){
+  if(value==null || ref==null || isNaN(value) || isNaN(ref)) return '';
+  const diff = value - ref;
+  const cls = diff>=0 ? 'badge-up' : 'badge-down';
+  const arrow = diff>=0 ? '▲' : '▼';
+  const word = diff>=0 ? 'מעל' : 'מתחת ל';
+  return `<div class="avgbadge ${cls}">${arrow} ${Math.abs(diff).toFixed(1)} נק' ${word}ממוצע הארצי</div>`;
+}
+function estimatedGain(p, cityTurnout){
+  const gap = cityTurnout - p.x;
+  if(!(gap>0)) return 0;
+  return Math.round(p.eligible * gap/100);
+}
+function buildNarrative(points, cityName, cityTurnout){
+  const priority = points.filter(p=>p.category==='עדיפות להשקעה').slice().sort((a,b)=>b.y-a.y);
+  if(priority.length===0){
+    return { text: `ב${cityName} אין כרגע שכונות שבולטות כמטרה ברורה להשקעה: במקומות שבהם האופוזיציה חזקה, ההצבעה כבר גבוהה יחסית לממוצע הרשות, ובשאר השכונות האופוזיציה חלשה יותר.`, top: [] };
+  }
+  const top = priority.slice(0,3);
+  const names = top.map(p=>p.name).join(', ');
+  const totalGain = priority.reduce((s,p)=>s+estimatedGain(p,cityTurnout),0);
+  let text = `בשכונות ${names}${priority.length>3?' ועוד':''} האופוזיציה חזקה יחסית לממוצע הרשות, אך ההצבעה בפועל נמוכה ממנו — אלה היעדים הכי משתלמים למאמצי הוצאה להצבעה.`;
+  if(totalGain>0){
+    text += ` אם ההצבעה בכל השכונות האלה הייתה עולה לרמת הממוצע ברשות (${fmtPct(cityTurnout)}), מדובר בכ-${fmtNum(totalGain)} מצביעים נוספים בקירוב.`;
+  }
+  return {text, top};
+}
+
+function renderCityOpposition(cityName, rows, cityRow){
+  const container = document.getElementById('cityOppoSection');
   const list = OPPOSITION_PARTIES[currentRound];
   if(!list){
-    container.innerHTML = '<div class="empty">רשימת מפלגות האופוזיציה מוגדרת רק עבור הכנסת ה-25 וה-24 — בחר אחת מהן בבורר הבחירות למעלה</div>';
+    container.innerHTML = `<div class="card"><div class="empty">ניתוח פוטנציאל לאופוזיציה מוגדר רק עבור הכנסת ה-25 וה-24</div></div>`;
+    oppoLastState = null;
     return;
   }
 
-  const cityName = document.getElementById('oppoCitySearch').value.trim();
-  if(!cityName){
-    container.innerHTML = '<div class="empty">בחר יישוב מהרשימה כדי לראות את מטריצת השכונות שלו</div>';
-    if(oppoChart){ oppoChart.destroy(); oppoChart = null; }
-    return;
-  }
-
-  const {cityRow, rows} = neighborhoodsForCity(neighborhoodData, municipalData, cityName);
-  if(!cityRow && rows.length === 0){
-    container.innerHTML = '<div class="empty">יישוב לא נמצא — בחר שם מהרשימה הנפתחת</div>';
-    return;
-  }
-
-  const minBz = Number(document.getElementById('oppoMinVoters').value) || 0;
+  const minBz = Number((document.getElementById('oppoMinVoters')||{}).value) || 0;
   const neighborhoods = rows.filter(r => (Number(r['בזב'])||0) >= minBz && !isNaN(Number(r['אחוז הצבעה'])));
 
   const cityTurnout = cityRow ? cityRow['אחוז הצבעה'] : NaN;
@@ -961,7 +1003,6 @@ function renderOppo(){
     return {x, y, name: r['neighborhood_name'] ?? r['id'], eligible, voters: r['מצביעים'], category, color};
   });
 
-  // bubble radius = sqrt(בז"ב), min-max normalized into a bounded range, so no giant-vs-tiny extremes
   const RADIUS_MIN = 6, RADIUS_MAX = 22;
   const sqrtVals = points.map(p => Math.sqrt(Math.max(p.eligible,0)));
   const sMin = Math.min(...sqrtVals, 0), sMax = Math.max(...sqrtVals, 0);
@@ -975,15 +1016,20 @@ function renderOppo(){
     return (av-bv) * oppoSortDir;
   });
 
+  const nat = nationalAverages(list);
+  const narrative = buildNarrative(points, cityName, cityTurnout);
+
   container.innerHTML = `
     <div class="kpirow">
-      <div class="kpi"><div class="label">יישוב</div><div class="value" style="font-size:1.1rem;">${cityName}</div></div>
-      <div class="kpi"><div class="label">אחוז הצבעה ברשות</div><div class="value">${fmtPct(cityTurnout)}</div></div>
-      <div class="kpi"><div class="label">אחוז הצבעה לאופוזיציה ברשות</div><div class="value">${fmtPct(cityOppo)}</div></div>
-      <div class="kpi"><div class="label">שכונות מוצגות</div><div class="value">${fmtNum(points.length)}</div></div>
+      <div class="kpi"><div class="label">אחוז הצבעה לאופוזיציה ברשות</div><div class="value">${fmtPct(cityOppo)}</div>${avgBadge(cityOppo, nat.oppo)}</div>
+      <div class="kpi"><div class="label">שכונות בניתוח</div><div class="value">${fmtNum(points.length)}</div></div>
+      <div class="kpi" style="flex:2;display:flex;align-items:center;gap:10px;">
+        <label class="mono" style="font-size:.78rem;color:var(--muted);white-space:nowrap;">בז״ב מינימלי לשכונה:</label>
+        <input type="number" id="oppoMinVoters" value="${minBz}" min="0" style="max-width:100px;">
+      </div>
     </div>
     <div class="card">
-      <h3>מפת השקעה — שכונות ב${cityName}</h3>
+      <h3>מפת השקעה לאופוזיציה — שכונות ב${cityName}</h3>
       <div class="desc">
         כל עיגול = שכונה; גודל העיגול מייצג את בז״ב השכונה (בסקאלה מרוסנת כדי שלא יהיו עיגולים ענקיים לצד קטנטנים).
         הקווים המקווקווים מסמנים את הממוצע ברמת הרשות עצמה לכל ציר.
@@ -994,8 +1040,16 @@ function renderOppo(){
       <canvas id="oppoChart" height="110"></canvas>
     </div>
     <div class="card">
+      <h3>מה זה אומר בפועל?</h3>
+      <p style="margin:0 0 4px;line-height:1.65;">${narrative.text}</p>
+      ${narrative.top.length ? `<ul class="prioritylist">${narrative.top.map(p => {
+        const gain = estimatedGain(p, cityTurnout);
+        return `<li><b>${p.name}</b> — הצבעה ${fmtPct(p.x)}, אופוזיציה ${fmtPct(p.y)}${gain>0 ? ` · פוטנציאל של כ-${fmtNum(gain)} מצביעים נוספים אם ההצבעה תעלה לממוצע הרשות` : ''}</li>`;
+      }).join('')}</ul>` : ''}
+    </div>
+    <div class="card">
       <div class="cardhead">
-        <h3>טבלת שכונות</h3>
+        <h3>טבלת שכונות — ניתוח אופוזיציה</h3>
         <button class="exportbtn" id="exportOppoTable">ייצוא לאקסל</button>
       </div>
       <div class="desc">לחיצה על כותרת עמודה ממיינת לפיה</div>
@@ -1004,6 +1058,8 @@ function renderOppo(){
       </div>
     </div>
   `;
+
+  document.getElementById('oppoMinVoters').addEventListener('change', () => renderCityOpposition(cityName, rows, cityRow));
 
   if(oppoChart) oppoChart.destroy();
   oppoChart = new Chart(document.getElementById('oppoChart'), {
@@ -1030,7 +1086,7 @@ function renderOppo(){
     th.addEventListener('click', () => {
       const key = th.dataset.col;
       if(oppoSortCol === key) oppoSortDir *= -1; else { oppoSortCol = key; oppoSortDir = (key==='name'||key==='category') ? 1 : -1; }
-      renderOppo();
+      renderCityOpposition(cityName, rows, cityRow);
     });
   });
 
@@ -1049,6 +1105,141 @@ function renderOppo(){
     points.map(p => ({'שכונה':p.name, 'אחוז הצבעה':+p.x.toFixed(2), 'אחוז לאופוזיציה':+p.y.toFixed(2), 'קטגוריה':p.category, 'מצביעים':p.voters, 'בז"ב':p.eligible})),
     `מיקוד_השקעה_${cityName.replace(/[\\/:*?"<>|]/g,'')}_${labelForRound(currentRound).replace(/\s+/g,'_')}.xlsx`, 'מיקוד השקעה'
   );
+
+  oppoLastState = {cityName, cityTurnout, cityOppo, nat, points, narrative};
+}
+
+function compareCityAcrossRounds(cityName){
+  if(!dataByRound['25'] || !dataByRound['24']) return null;
+  const a = neighborhoodsForCity(dataByRound['25'].neighborhood, dataByRound['25'].municipal, cityName);
+  const b = neighborhoodsForCity(dataByRound['24'].neighborhood, dataByRound['24'].municipal, cityName);
+  if((!a.cityRow && a.rows.length===0) && (!b.cityRow && b.rows.length===0)) return null;
+
+  const mapA = {}; a.rows.forEach(r => mapA[r['neighborhood_name']||r['id']] = r);
+  const mapB = {}; b.rows.forEach(r => mapB[r['neighborhood_name']||r['id']] = r);
+  const names = [...new Set([...Object.keys(mapA), ...Object.keys(mapB)])];
+
+  const rows = names.map(name => {
+    const ra = mapA[name], rb = mapB[name];
+    const toA = ra ? ra['אחוז הצבעה'] : null;
+    const toB = rb ? rb['אחוז הצבעה'] : null;
+    const delta = (toA!=null && toB!=null && !isNaN(toA) && !isNaN(toB)) ? toA-toB : null;
+    const winA = ra ? ra['winner_party'] : null;
+    const winB = rb ? rb['winner_party'] : null;
+    const winnerChanged = !!(winA && winB && winA !== winB);
+    const significant = (delta!=null && Math.abs(delta)>=5) || winnerChanged;
+    return {name, toA, toB, delta, winA, winB, winnerChanged, significant};
+  });
+
+  rows.sort((x,y) => Math.abs(y.delta ?? 0) - Math.abs(x.delta ?? 0));
+  return {rows};
+}
+
+function generateCityReport(){
+  if(!cityLastState){ alert('בחר רשות קודם כדי להכין עבורה דוח'); return; }
+  const c = cityLastState;
+  const o = (oppoLastState && oppoLastState.cityName === c.name) ? oppoLastState : null;
+  const cmp = compareCityAcrossRounds(c.name);
+  const dateStr = new Date().toLocaleDateString('he-IL');
+
+  const neiRowsHtml = c.exportNeiRows.map(r => `
+    <tr>
+      <td>${r['שכונה']}</td>
+      <td>${fmtPct(r['אחוז הצבעה'])}</td>
+      <td>${fmtNum(r['בז"ב'])}</td>
+      <td>${fmtNum(r['מצביעים'])}</td>
+      <td>${r['מקום ראשון']||'—'}${r['אחוז מקום ראשון']!==''?` (${r['אחוז מקום ראשון']}%)`:''}</td>
+      <td>${r['מקום שני']||'—'}${r['אחוז מקום שני']!==''?` (${r['אחוז מקום שני']}%)`:''}</td>
+    </tr>
+  `).join('');
+
+  let oppoSectionHtml = '';
+  if(o){
+    const priority = o.points.filter(p=>p.category==='עדיפות להשקעה').slice().sort((a,b)=>b.y-a.y);
+    const shown = priority.length ? priority : o.points.slice().sort((a,b)=>b.y-a.y).slice(0,5);
+    const rowsHtml = shown.map(p => {
+      const gain = estimatedGain(p, o.cityTurnout);
+      return `<tr><td>${p.name}</td><td>${fmtPct(p.x)}</td><td>${fmtPct(p.y)}</td><td>${fmtNum(p.eligible)}</td><td>${gain>0?'+'+fmtNum(gain):'—'}</td></tr>`;
+    }).join('');
+    oppoSectionHtml = `
+      <div class="card">
+        <h3>ניתוח פוטנציאל לאופוזיציה</h3>
+        <p style="line-height:1.7;margin:0 0 12px;">${o.narrative.text}</p>
+        <table><thead><tr><th>שכונה</th><th>אחוז הצבעה</th><th>אחוז אופוזיציה</th><th>בז״ב</th><th>פוטנציאל מצביעים נוספים</th></tr></thead>
+        <tbody>${rowsHtml}</tbody></table>
+      </div>
+    `;
+  }
+
+  let cmpSectionHtml;
+  if(cmp){
+    const sig = cmp.rows.filter(r=>r.significant);
+    const cmpRowsHtml = (sig.length ? sig : cmp.rows.slice(0,10)).map(r => `
+      <tr>
+        <td>${r.name}</td>
+        <td>${r.toA==null?'—':fmtPct(r.toA)}</td>
+        <td>${r.toB==null?'—':fmtPct(r.toB)}</td>
+        <td>${r.delta==null?'—':(r.delta>=0?'+':'')+r.delta.toFixed(1)+' נק׳'}</td>
+        <td>${r.winA||'—'}${r.winnerChanged?` ← ${r.winB||'—'}`:''}</td>
+      </tr>
+    `).join('');
+    cmpSectionHtml = `
+      <div class="card">
+        <h3>שינויים בין הכנסת ה-25 לכנסת ה-24</h3>
+        <p style="color:#66707E;font-size:.85rem;margin:0 0 12px;">שינוי משמעותי = הפרש של 5 נקודות אחוז או יותר באחוז ההצבעה, או החלפת המפלגה המובילה בשכונה. הטבלה מציגה ${sig.length?'רק את השכונות עם שינוי משמעותי':'את 10 השכונות עם השינוי הגדול ביותר (לא נמצא שינוי מעל הסף)'}</p>
+        <table><thead><tr><th>שכונה</th><th>הצבעה — הכנסת ה-25</th><th>הצבעה — הכנסת ה-24</th><th>שינוי</th><th>מפלגה מובילה (25 ← 24 אם השתנה)</th></tr></thead>
+        <tbody>${cmpRowsHtml}</tbody></table>
+      </div>
+    `;
+  } else {
+    cmpSectionHtml = `<div class="card"><h3>שינויים בין הכנסת ה-25 לכנסת ה-24</h3><p style="color:#66707E;">נתונים לשתי הכנסות אינם זמינים בקובץ הנוכחי</p></div>`;
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="he" dir="rtl"><head><meta charset="UTF-8">
+<title>דוח רשות — ${c.name}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@700;900&family=Assistant:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  body{font-family:'Assistant',sans-serif;background:#F2F4F8;color:#1B2430;margin:0;padding:32px;max-width:900px;margin-inline:auto;}
+  h1{font-family:'Frank Ruhl Libre',serif;margin:0 0 4px;font-size:1.7rem;}
+  .sub{color:#66707E;font-size:.9rem;margin-bottom:22px;}
+  .kpirow{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px;}
+  .kpi{background:#fff;border:1px solid #DCE2EA;border-radius:12px;padding:14px 18px;flex:1;min-width:140px;}
+  .kpi .label{color:#66707E;font-size:.78rem;}
+  .kpi .value{font-family:'Frank Ruhl Libre',serif;font-size:1.35rem;font-weight:700;}
+  .card{background:#fff;border:1px solid #DCE2EA;border-radius:12px;padding:18px 20px;margin-bottom:18px;}
+  .card h3{font-family:'Frank Ruhl Libre',serif;margin:0 0 10px;}
+  table{width:100%;border-collapse:collapse;font-size:.88rem;}
+  th,td{padding:7px 9px;text-align:right;border-bottom:1px solid #DCE2EA;}
+  th{font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#66707E;}
+  .footer{text-align:center;color:#66707E;font-size:.8rem;margin-top:20px;}
+  .printbtn{background:#1C8FC4;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;margin-bottom:20px;font-family:'Assistant',sans-serif;font-size:.9rem;}
+  @media print{ .printbtn{display:none;} body{background:#fff;} }
+</style></head>
+<body>
+  <button class="printbtn" onclick="window.print()">הדפס / שמור כ-PDF</button>
+  <h1>דוח רשות — ${c.name}</h1>
+  <div class="sub">${labelForRound(currentRound)} · הופק בתאריך ${dateStr}</div>
+  <div class="kpirow">
+    <div class="kpi"><div class="label">שכונות ברשות</div><div class="value">${fmtNum(c.exportNeiRows.length)}</div></div>
+    <div class="kpi"><div class="label">בעלי זכות בחירה</div><div class="value">${fmtNum(c.eligible)}</div></div>
+    <div class="kpi"><div class="label">מצביעים</div><div class="value">${fmtNum(c.voters)}</div></div>
+    <div class="kpi"><div class="label">אחוז הצבעה</div><div class="value">${fmtPct(c.turnout)}</div></div>
+  </div>
+  <div class="card">
+    <h3>כל השכונות ברשות</h3>
+    <table><thead><tr><th>שכונה</th><th>אחוז הצבעה</th><th>בז״ב</th><th>מצביעים</th><th>מקום ראשון</th><th>מקום שני</th></tr></thead>
+    <tbody>${neiRowsHtml}</tbody></table>
+  </div>
+  ${oppoSectionHtml}
+  ${cmpSectionHtml}
+  <div class="footer">מקור הנתונים: ועדת הבחירות המרכזית · הופק מתוך כלי ניתוח תוצאות הבחירות של גיל פלדמן</div>
+</body></html>`;
+
+  const blob = new Blob([html], {type: 'text/html'});
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
 }
 
 /* ---------------- ROUND COMPARE TAB ---------------- */
